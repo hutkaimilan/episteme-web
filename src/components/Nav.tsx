@@ -63,6 +63,7 @@ export default function Nav() {
   }, [open]);
 
   return (
+    <>
     <header
       className={cn(
         'fixed inset-x-0 top-0 z-50 transition-all duration-700 ease-luxe',
@@ -123,8 +124,13 @@ export default function Nav() {
           {open ? <X size={22} strokeWidth={1.25} /> : <Menu size={22} strokeWidth={1.25} />}
         </button>
       </nav>
+    </header>
 
-      {/* Mobile full-screen overlay */}
+      {/* Mobile full-screen overlay — rendered as a SIBLING of the header, not
+          inside it: the scrolled header's backdrop-blur creates a containing
+          block that would shrink a fixed inset-0 descendant to the 80px bar.
+          As a sibling, inset-0 spans the real viewport; the z-50 header keeps
+          the wordmark and the X button visible above this z-40 layer. */}
       <AnimatePresence>
         {open && (
           <motion.div
@@ -132,7 +138,7 @@ export default function Nav() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed inset-0 top-20 z-40 flex flex-col bg-obsidian/97 backdrop-blur-xl lg:hidden"
+            className="fixed inset-0 z-40 flex flex-col bg-obsidian pt-20 lg:hidden"
           >
             <motion.ul
               initial="hidden"
@@ -191,6 +197,6 @@ export default function Nav() {
           </motion.div>
         )}
       </AnimatePresence>
-    </header>
+    </>
   );
 }
