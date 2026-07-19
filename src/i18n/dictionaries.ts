@@ -1,5 +1,27 @@
 export type Lang = 'hu' | 'en' | 'es';
 
+/** Every menu item id; Record<MenuItemId, …> forces all 47 items to exist in each language. */
+export type MenuItemId =
+  | 'osztriga' | 'fugu'
+  | 'kaviar' | 'kobe-carpaccio' | 'jamon' | 'foie-gras' | 'lazac-tartar'
+  | 'fesukagylo' | 'libamaj' | 'wagyu-ravioli'
+  | 'fecskefeszek' | 'homar-bisque' | 'szarvasgomba-leves'
+  | 'homar-rizotto' | 'tonhal-steak' | 'tengeri-suger' | 'tokhal'
+  | 'wagyu-chateaubriand' | 'matsusaka' | 'poulet-bresse' | 'kurobuta' | 'barany'
+  | 'pule' | 'epoisses'
+  | 'golden-opulence' | 'yubari-parfe' | 'macaron' | 'szufle' | 'tiramisu'
+  | 'acqua-di-cristallo' | 'svalbardi' | 'fillico'
+  | 'black-ivory' | 'kopi-luwak' | 'da-hong-pao' | 'gyokuro'
+  | 'armand-midas' | 'dom-perignon-rose' | 'salon'
+  | 'yquem-1811' | 'screaming-eagle' | 'drc'
+  | 'henri-iv' | 'macallan-1926' | 'louis-xiii' | 'diamonds-martini' | 'the-winston';
+
+export type MenuItemText = { name: string; desc: string };
+
+export type MenuCategoryKey =
+  | 'amuse' | 'cold' | 'warm' | 'soup' | 'seafood' | 'meat' | 'cheese' | 'dessert'
+  | 'water' | 'coffee' | 'champagne' | 'wine' | 'spirit';
+
 /** Per-member team texts; the name is identical across languages but still routed through i18n. */
 export type TeamMemberText = {
   name: string;
@@ -63,6 +85,12 @@ export type Dictionary = {
       mate: TeamMemberText;
     };
   };
+  menu: {
+    chefsSelection: string;
+    categories: Record<MenuCategoryKey, string>;
+    suffixes: { portion: string; twoPersons: string };
+    items: Record<MenuItemId, MenuItemText>;
+  };
   footer: {
     tagline: string;
     addressLabel: string;
@@ -114,7 +142,7 @@ const hu: Dictionary = {
   sections: {
     helyszin: { eyebrow: 'A helyszín', title: 'Ahol az este *emlékké* válik.' },
     csapat: { eyebrow: 'Konyha & Csapat', title: 'A *precizitás* művészei.' },
-    etlap: { eyebrow: 'Étlap', title: 'Egy este partitúrája' },
+    etlap: { eyebrow: 'Az étlap', title: 'Egy este. Ezer *finomság*.' },
     borkultura: { eyebrow: 'Borkultúra', title: 'A pince csendje' },
     foglalas: { eyebrow: 'Foglalás', title: 'Az Ön asztala' },
     kapcsolat: { eyebrow: 'Kapcsolat', title: 'Írjon nekünk' },
@@ -190,6 +218,215 @@ const hu: Dictionary = {
       },
     },
   },
+  menu: {
+    chefsSelection: 'Séf ajánlása',
+    categories: {
+      amuse: 'Amuse-Bouche',
+      cold: 'Hideg előételek',
+      warm: 'Meleg előételek',
+      soup: 'Levesek',
+      seafood: 'Főételek — Tenger gyümölcsei',
+      meat: 'Főételek — Húsok',
+      cheese: 'Sajtok',
+      dessert: 'Desszertek',
+      water: 'Vizek',
+      coffee: 'Kávé & Tea',
+      champagne: 'Pezsgők',
+      wine: 'Borok',
+      spirit: 'Párlatok & Koktélok',
+    },
+    suffixes: { portion: '/ adag', twoPersons: '/ 2 fő' },
+    items: {
+      osztriga: {
+        name: 'Cozes-i Osztriga „Perle Noire”',
+        desc: 'Nyers osztriga Cozes partjairól, keserűcsokoládé-csipkével és fekete gyöngyként csillanó kaviárcseppel.',
+      },
+      fugu: {
+        name: 'Fugu Sashimi Falat',
+        desc: 'Engedélyes mester által papírvékonyra szeletelt fugu, ponzuval és frissen reszelt wasabival.',
+      },
+      kaviar: {
+        name: 'Almás Kaviár Blinivel',
+        desc: 'Ötven gramm szemenként pergő kaviár zöldalma-esszenciával, hajdina-blinivel és crème fraîche-sel.',
+      },
+      'kobe-carpaccio': {
+        name: 'Kobe Marha Carpaccio',
+        desc: 'Leheletvékony Kobe-szeletek hidegen sajtolt olívaolajjal, érlelt parmezánforgáccsal és tört borssal.',
+      },
+      jamon: {
+        name: 'Jamón Ibérico de Bellota',
+        desc: 'Makkon hizlalt ibériai sonka, negyvennyolc hónapig érlelve, kézzel szeletelve az asztal mellett.',
+      },
+      'foie-gras': {
+        name: 'Terrine de Foie Gras d’Oie',
+        desc: 'Lassan sült libamáj-terrine Sauternes-zselével, birsalmalekvárral és pirított briós-szeletekkel.',
+      },
+      'lazac-tartar': {
+        name: 'Ōra King Lazac Tartár',
+        desc: 'Kézzel vágott Ōra King lazac yuzuval, tengeri spárgával és füstölt tojássárgája-krémmel.',
+      },
+      fesukagylo: {
+        name: 'Hokkaido Fésűkagyló',
+        desc: 'Vajban karamellizált hokkaidói fésűkagyló barnavaj-emulzióval és shiso-olajjal, héjában tálalva.',
+      },
+      libamaj: {
+        name: 'Serpenyős Libamáj',
+        desc: 'Roséra pirított libamáj sült körtével, tokaji borredukcióval és ropogós kaláccsal.',
+      },
+      'wagyu-ravioli': {
+        name: 'Wagyu-Szarvasgomba Ravioli',
+        desc: 'Kézzel hajtogatott ravioli lassan párolt wagyuval töltve, fekete szarvasgombával és csontvelő-glásszal.',
+      },
+      fecskefeszek: {
+        name: 'Fecskefészek Leves',
+        desc: 'A hagyományos kínai ínyencség kristálytiszta szárnyas-consomméban, aranyszínű krutonnal.',
+      },
+      'homar-bisque': {
+        name: 'Kék Homár Bisque',
+        desc: 'Bársonyos bisque bretagne-i kék homárból, konyakkal flambírozva, tárkonyos tejszínhabbal.',
+      },
+      'szarvasgomba-leves': {
+        name: 'Fehér Szarvasgomba Krémleves',
+        desc: 'Selymes krémleves alba-i fehér szarvasgombával, pirított mogyoróval és szarvasgombaolaj-cseppekkel.',
+      },
+      'homar-rizotto': {
+        name: 'Kék Homár Sáfrányos Rizottóval',
+        desc: 'Vajban posírozott kék homár carnaroli rizottón, sáfránnyal és homár-bisque-glásszal.',
+      },
+      'tonhal-steak': {
+        name: 'O-Toro Tonhal Steak',
+        desc: 'A kékúszójú tonhal legzsírosabb hasaszelete: kívül pirítva, belül rozé, szezám-ponzu mázzal.',
+      },
+      'tengeri-suger': {
+        name: 'Glacier 51 Tengeri Sügér',
+        desc: 'Az Antarktisz jeges vizeiből: hófehér húsa vajpuhán omlik, yuzus beurre blanc-nal.',
+      },
+      tokhal: {
+        name: 'Beluga Tokhal Filé',
+        desc: 'Lassan sült beluga tokhalfilé saját kaviárjával koronázva, jégen tálalt pezsgő-veluttal.',
+      },
+      'wagyu-chateaubriand': {
+        name: 'A5 Wagyu Chateaubriand Aranykéregben',
+        desc: 'A5-ös wagyu bélszín ehető aranykéregben sütve, füstölt csontvelő-jus-vel, az asztalnál szeletelve.',
+      },
+      matsusaka: {
+        name: 'Matsusaka Sirloin',
+        desc: 'A világ legmárványozottabb marhahúsa binchotan faszén felett grillezve, csupán tengeri sóval.',
+      },
+      'poulet-bresse': {
+        name: 'Poulet de Bresse',
+        desc: 'Egészben sütött bresse-i csirke vin jaune-mártással és frissen gyalult szarvasgombával, két főre.',
+      },
+      kurobuta: {
+        name: 'Kurobuta Sertés Császár',
+        desc: 'Berkshire-i fekete sertés császárhúsa üvegesre sült bőrrel, misókaramellel és füstölt burgonyapürével.',
+      },
+      barany: {
+        name: 'Új-Zélandi Báránygerinc',
+        desc: 'Füvön nevelt bárány gerince rozmaringkéregben, fekete fokhagymával és mély bárány-jus-vel.',
+      },
+      pule: {
+        name: 'Pule Sajt',
+        desc: 'A világ legritkább sajtja szerbiai szamártejből — huszonöt liter tej egyetlen kilóhoz.',
+      },
+      epoisses: {
+        name: 'Époisses de Bourgogne',
+        desc: 'Marc de Bourgogne-nyal mosott kérgű, krémesen folyó burgundi sajt dióval és fügével.',
+      },
+      'golden-opulence': {
+        name: 'Golden Opulence Kehely',
+        desc: 'Tahiti vaníliafagylalt 23 karátos aranyfüsttel, Amedei-csokoládéval és kandírozott gyümölccsel, kristálykehelyben.',
+      },
+      'yubari-parfe': {
+        name: 'Yubari King Dinnye Parfé',
+        desc: 'Japán Yubari King dinnye jéghideg parfévá dermesztve, friss dinnyeszeletekkel és shisóval.',
+      },
+      macaron: {
+        name: 'Szarvasgombás-Arany Macaron',
+        desc: 'Fekete szarvasgombás ganache ropogós makaronhéjban, ehető aranyporral fújva.',
+      },
+      szufle: {
+        name: 'Amedei Porcelana Szuflé',
+        desc: 'Levegős szuflé a ritka Porcelana-kakaóból, folyékony közepével, abban a pillanatban tálalva, amikor felemelkedik.',
+      },
+      tiramisu: {
+        name: 'Kopi Luwak Tiramisu',
+        desc: 'Klasszikus tiramisu kopi luwak kávéval átitatva, mascarponéval és kakaóval rétegezve.',
+      },
+      'acqua-di-cristallo': {
+        name: 'Acqua di Cristallo Tributo a Modigliani',
+        desc: 'Fidzsi- és francia forrásvizek házasítása 24 karátos aranyszórással, kézzel formált üvegben.',
+      },
+      svalbardi: {
+        name: 'Svalbarði Polar Iceberg Water',
+        desc: 'Svalbard sarkvidéki jéghegyeiből olvasztva — négyezer éves, érintetlen tisztaság.',
+      },
+      fillico: {
+        name: 'Fillico Jewelry Water',
+        desc: 'Kobe forrásvize Swarovski-kristályokkal díszített, koronás palackban.',
+      },
+      'black-ivory': {
+        name: 'Black Ivory Coffee',
+        desc: 'Thaiföldi arabica, elefántok által természetesen fermentálva — a világ legritkább kávéja.',
+      },
+      'kopi-luwak': {
+        name: 'Kopi Luwak Kávé',
+        desc: 'Vadon élő cibetmacskák válogatta szumátrai szemek, lágy, csokoládés karakterrel.',
+      },
+      'da-hong-pao': {
+        name: 'Da Hong Pao Tea',
+        desc: 'Oolong a Wuyi-hegység anyateáiról szaporított bokrokról — mély, ásványos, hosszú lecsengés.',
+      },
+      gyokuro: {
+        name: 'Gyokuro Tea',
+        desc: 'Árnyékban nevelt japán zöld tea: selymes umami és édes, tengeri frissesség.',
+      },
+      'armand-midas': {
+        name: 'Armand de Brignac Midas',
+        desc: 'Harmincliteres aranypalack — a ház nagy házasítása, monumentális formában.',
+      },
+      'dom-perignon-rose': {
+        name: 'Dom Pérignon Rosé Gold',
+        desc: 'Vintage rozé aranyba öltöztetett palackban: érett piros gyümölcs és füst.',
+      },
+      salon: {
+        name: 'Salon Blanc de Blancs',
+        desc: 'Chardonnay egyetlen falu, Le Mesnil-sur-Oger krétadombjairól — csak nagy évjáratokban készül.',
+      },
+      'yquem-1811': {
+        name: 'Château d’Yquem 1811',
+        desc: 'A legendás „üstökös-évjárat” Sauternes-ből — két évszázad napfénye mézzé érve.',
+      },
+      'screaming-eagle': {
+        name: 'Screaming Eagle',
+        desc: 'Napa Valley kultikus cabernet-je — parányi termés, fekete gyümölcs, bársonyos erő.',
+      },
+      drc: {
+        name: 'DRC Grand Cru',
+        desc: 'Pinot noir Burgundia szívéből, a Romanée-Conti birtokról — éteri illat, selymes tannin.',
+      },
+      'henri-iv': {
+        name: 'Henri IV Dudognon Cognac',
+        desc: 'Száz évig tölgyfahordóban érlelt cognac-örökség, aranyba és kristályba zárva.',
+      },
+      'macallan-1926': {
+        name: 'Macallan 1926',
+        desc: 'Hatvan évig érlelt single malt az 1926-os lepárlásból — a whiskytörténelem csúcsa.',
+      },
+      'louis-xiii': {
+        name: 'Louis XIII Black Pearl',
+        desc: 'Grande Champagne-i eaux-de-vie házasítása éjfekete kristálydekanterben.',
+      },
+      'diamonds-martini': {
+        name: '„Diamonds Are Forever” Martini',
+        desc: 'Jéghideg vodka-martini, amelynek mélyén valódi gyémánt csillog.',
+      },
+      'the-winston': {
+        name: '„The Winston”',
+        desc: 'Évszázados konyakokra épített koktél füstölt fűszerekkel — türelemmel kevert ritkaság.',
+      },
+    },
+  },
   footer: {
     tagline: 'Az ízlelés tudománya.',
     addressLabel: 'Cím',
@@ -242,7 +479,7 @@ const en: Dictionary = {
   sections: {
     helyszin: { eyebrow: 'The setting', title: 'Where the evening becomes a *memory*.' },
     csapat: { eyebrow: 'Kitchen & Team', title: 'Artists of *precision*.' },
-    etlap: { eyebrow: 'Menu', title: 'The score of an evening' },
+    etlap: { eyebrow: 'The menu', title: 'One evening. A thousand *refinements*.' },
     borkultura: { eyebrow: 'Wine', title: 'The silence of the cellar' },
     foglalas: { eyebrow: 'Reservation', title: 'Your table' },
     kapcsolat: { eyebrow: 'Contact', title: 'Write to us' },
@@ -318,6 +555,215 @@ const en: Dictionary = {
       },
     },
   },
+  menu: {
+    chefsSelection: 'Chef’s Selection',
+    categories: {
+      amuse: 'Amuse-Bouche',
+      cold: 'Cold Starters',
+      warm: 'Warm Starters',
+      soup: 'Soups',
+      seafood: 'Mains — From the Sea',
+      meat: 'Mains — Meat & Poultry',
+      cheese: 'Cheeses',
+      dessert: 'Desserts',
+      water: 'Waters',
+      coffee: 'Coffee & Tea',
+      champagne: 'Champagnes',
+      wine: 'Wines',
+      spirit: 'Spirits & Cocktails',
+    },
+    suffixes: { portion: '/ portion', twoPersons: '/ 2 pers.' },
+    items: {
+      osztriga: {
+        name: 'Cozes Oyster “Perle Noire”',
+        desc: 'Raw oyster from the Cozes coast, laced with bitter-chocolate filigree and a black pearl of caviar.',
+      },
+      fugu: {
+        name: 'Fugu Sashimi Bite',
+        desc: 'Fugu sliced paper-thin by a licensed master, with ponzu and freshly grated wasabi.',
+      },
+      kaviar: {
+        name: 'Apple Caviar with Blini',
+        desc: 'Fifty grams of pearl-firm caviar with green-apple essence, buckwheat blini and crème fraîche.',
+      },
+      'kobe-carpaccio': {
+        name: 'Kobe Beef Carpaccio',
+        desc: 'Whisper-thin slices of Kobe beef with cold-pressed olive oil, aged Parmesan shavings and cracked pepper.',
+      },
+      jamon: {
+        name: 'Jamón Ibérico de Bellota',
+        desc: 'Acorn-fed Ibérico ham cured for forty-eight months, carved by hand beside the table.',
+      },
+      'foie-gras': {
+        name: 'Terrine de Foie Gras d’Oie',
+        desc: 'Slow-baked goose foie gras terrine with Sauternes jelly, quince preserve and toasted brioche.',
+      },
+      'lazac-tartar': {
+        name: 'Ōra King Salmon Tartare',
+        desc: 'Hand-cut Ōra King salmon with yuzu, sea asparagus and smoked egg-yolk cream.',
+      },
+      fesukagylo: {
+        name: 'Hokkaido Scallop',
+        desc: 'Hokkaido scallop caramelised in butter, brown-butter emulsion and shiso oil, served in its shell.',
+      },
+      libamaj: {
+        name: 'Pan-Seared Goose Liver',
+        desc: 'Goose liver seared to rosé with roasted pear, a Tokaji wine reduction and crisp brioche.',
+      },
+      'wagyu-ravioli': {
+        name: 'Wagyu & Truffle Ravioli',
+        desc: 'Hand-folded ravioli of slow-braised Wagyu with black truffle and a bone-marrow glaze.',
+      },
+      fecskefeszek: {
+        name: 'Bird’s Nest Soup',
+        desc: 'The classic Chinese delicacy in a crystal-clear poultry consommé with golden croutons.',
+      },
+      'homar-bisque': {
+        name: 'Blue Lobster Bisque',
+        desc: 'A velvet bisque of Brittany blue lobster, flambéed with cognac, tarragon cream.',
+      },
+      'szarvasgomba-leves': {
+        name: 'White Truffle Velouté',
+        desc: 'A silken velouté of white Alba truffle with toasted hazelnuts and drops of truffle oil.',
+      },
+      'homar-rizotto': {
+        name: 'Blue Lobster with Saffron Risotto',
+        desc: 'Butter-poached blue lobster on Carnaroli risotto with saffron and a lobster-bisque glaze.',
+      },
+      'tonhal-steak': {
+        name: 'O-Toro Tuna Steak',
+        desc: 'The richest cut of bluefin belly: seared outside, rosé within, sesame-ponzu glaze.',
+      },
+      'tengeri-suger': {
+        name: 'Glacier 51 Sea Bass',
+        desc: 'From Antarctic waters: snow-white flesh that parts like butter, with a yuzu beurre blanc.',
+      },
+      tokhal: {
+        name: 'Beluga Sturgeon Fillet',
+        desc: 'Slow-roasted Beluga sturgeon crowned with its own caviar, champagne velouté over ice.',
+      },
+      'wagyu-chateaubriand': {
+        name: 'A5 Wagyu Chateaubriand in Gold Crust',
+        desc: 'A5 Wagyu tenderloin roasted in an edible gold crust, smoked bone-marrow jus, carved tableside.',
+      },
+      matsusaka: {
+        name: 'Matsusaka Sirloin',
+        desc: 'The world’s most marbled beef, grilled over binchotan charcoal with nothing but sea salt.',
+      },
+      'poulet-bresse': {
+        name: 'Poulet de Bresse',
+        desc: 'Whole-roasted Bresse chicken with vin jaune sauce and freshly shaved truffle, for two.',
+      },
+      kurobuta: {
+        name: 'Kurobuta Pork Belly',
+        desc: 'Berkshire black pork belly with glass-crisp crackling, miso caramel and smoked potato purée.',
+      },
+      barany: {
+        name: 'New Zealand Rack of Lamb',
+        desc: 'Grass-fed lamb rack in a rosemary crust with black garlic and a deep lamb jus.',
+      },
+      pule: {
+        name: 'Pule Cheese',
+        desc: 'The world’s rarest cheese, from Serbian donkey milk — twenty-five litres for a single kilo.',
+      },
+      epoisses: {
+        name: 'Époisses de Bourgogne',
+        desc: 'Burgundy cheese washed in Marc de Bourgogne, creamily molten, with walnuts and fig.',
+      },
+      'golden-opulence': {
+        name: 'Golden Opulence Sundae',
+        desc: 'Tahitian vanilla ice cream with 23-carat gold leaf, Amedei chocolate and candied fruit, in crystal.',
+      },
+      'yubari-parfe': {
+        name: 'Yubari King Melon Parfait',
+        desc: 'Japan’s Yubari King melon set into an ice-cold parfait with fresh slices and shiso.',
+      },
+      macaron: {
+        name: 'Truffle & Gold Macaron',
+        desc: 'Black-truffle ganache in a crisp macaron shell, dusted with edible gold.',
+      },
+      szufle: {
+        name: 'Amedei Porcelana Soufflé',
+        desc: 'An airy soufflé of rare Porcelana cacao, molten at its heart, served the moment it rises.',
+      },
+      tiramisu: {
+        name: 'Kopi Luwak Tiramisu',
+        desc: 'Classic tiramisu soaked in kopi luwak coffee, layered with mascarpone and cocoa.',
+      },
+      'acqua-di-cristallo': {
+        name: 'Acqua di Cristallo Tributo a Modigliani',
+        desc: 'A marriage of Fiji and French spring waters with 24-carat gold dust, in hand-crafted glass.',
+      },
+      svalbardi: {
+        name: 'Svalbarði Polar Iceberg Water',
+        desc: 'Melted from Arctic icebergs off Svalbard — four-thousand-year-old, untouched purity.',
+      },
+      fillico: {
+        name: 'Fillico Jewelry Water',
+        desc: 'Spring water from Kobe in a crown-topped bottle set with Swarovski crystals.',
+      },
+      'black-ivory': {
+        name: 'Black Ivory Coffee',
+        desc: 'Thai arabica naturally fermented by elephants — the world’s rarest coffee.',
+      },
+      'kopi-luwak': {
+        name: 'Kopi Luwak Coffee',
+        desc: 'Sumatran beans selected by wild civets: soft, chocolate-toned character.',
+      },
+      'da-hong-pao': {
+        name: 'Da Hong Pao Tea',
+        desc: 'Oolong from bushes descended from the Wuyi mother trees — deep, mineral, endless finish.',
+      },
+      gyokuro: {
+        name: 'Gyokuro Tea',
+        desc: 'Shade-grown Japanese green tea: silken umami and a sweet marine freshness.',
+      },
+      'armand-midas': {
+        name: 'Armand de Brignac Midas',
+        desc: 'A thirty-litre golden Midas — the house’s grand blend at monumental scale.',
+      },
+      'dom-perignon-rose': {
+        name: 'Dom Pérignon Rosé Gold',
+        desc: 'Vintage rosé in a gold-dressed bottle: ripe red fruit and smoke.',
+      },
+      salon: {
+        name: 'Salon Blanc de Blancs',
+        desc: 'Chardonnay from the chalk of a single village, Le Mesnil-sur-Oger — made only in great years.',
+      },
+      'yquem-1811': {
+        name: 'Château d’Yquem 1811',
+        desc: 'The legendary “comet vintage” of Sauternes — two centuries of sunlight turned to honey.',
+      },
+      'screaming-eagle': {
+        name: 'Screaming Eagle',
+        desc: 'Napa Valley’s cult Cabernet — a tiny harvest of black fruit and velvet power.',
+      },
+      drc: {
+        name: 'DRC Grand Cru',
+        desc: 'Pinot Noir from the heart of Burgundy, the Romanée-Conti estate — ethereal perfume, silken tannin.',
+      },
+      'henri-iv': {
+        name: 'Henri IV Dudognon Cognac',
+        desc: 'A cognac heritage aged one hundred years in oak, sealed in gold and crystal.',
+      },
+      'macallan-1926': {
+        name: 'Macallan 1926',
+        desc: 'Single malt aged sixty years from the 1926 distillation — the summit of whisky history.',
+      },
+      'louis-xiii': {
+        name: 'Louis XIII Black Pearl',
+        desc: 'A blend of Grande Champagne eaux-de-vie in a night-black crystal decanter.',
+      },
+      'diamonds-martini': {
+        name: '“Diamonds Are Forever” Martini',
+        desc: 'An ice-cold vodka martini with a genuine diamond glittering at its base.',
+      },
+      'the-winston': {
+        name: '“The Winston”',
+        desc: 'A cocktail built on century-old cognacs with smoked spices — a rarity stirred with patience.',
+      },
+    },
+  },
   footer: {
     tagline: 'The science of taste.',
     addressLabel: 'Address',
@@ -370,7 +816,7 @@ const es: Dictionary = {
   sections: {
     helyszin: { eyebrow: 'El espacio', title: 'Donde la noche se convierte en un *recuerdo*.' },
     csapat: { eyebrow: 'Cocina y Equipo', title: 'Artistas de la *precisión*.' },
-    etlap: { eyebrow: 'Carta', title: 'La partitura de una noche' },
+    etlap: { eyebrow: 'La carta', title: 'Una noche. Mil *refinamientos*.' },
     borkultura: { eyebrow: 'Vinos', title: 'El silencio de la bodega' },
     foglalas: { eyebrow: 'Reserva', title: 'Su mesa' },
     kapcsolat: { eyebrow: 'Contacto', title: 'Escríbanos' },
@@ -443,6 +889,215 @@ const es: Dictionary = {
         role: 'Sous-Chef',
         origin: 'húngaro',
         bio: 'Máté es el metrónomo de la cocina: mantiene el ritmo cuando las veladas de cincuenta huéspedes se preparan a la vez. Su día empieza en el mercado al alba y termina con la revisión del último plato. Junto a Julien aprendió que la perfección no es una meta, sino un método de trabajo.',
+      },
+    },
+  },
+  menu: {
+    chefsSelection: 'Selección del Chef',
+    categories: {
+      amuse: 'Amuse-Bouche',
+      cold: 'Entrantes fríos',
+      warm: 'Entrantes calientes',
+      soup: 'Sopas',
+      seafood: 'Principales — Del mar',
+      meat: 'Principales — Carnes y aves',
+      cheese: 'Quesos',
+      dessert: 'Postres',
+      water: 'Aguas',
+      coffee: 'Café y té',
+      champagne: 'Champanes',
+      wine: 'Vinos',
+      spirit: 'Destilados y cócteles',
+    },
+    suffixes: { portion: '/ porción', twoPersons: '/ 2 personas' },
+    items: {
+      osztriga: {
+        name: 'Ostra de Cozes «Perle Noire»',
+        desc: 'Ostra cruda de la costa de Cozes, con filigrana de chocolate amargo y una perla negra de caviar.',
+      },
+      fugu: {
+        name: 'Bocado de Sashimi de Fugu',
+        desc: 'Fugu en láminas finísimas cortado por un maestro certificado, con ponzu y wasabi recién rallado.',
+      },
+      kaviar: {
+        name: 'Caviar de Manzana con Blinis',
+        desc: 'Cincuenta gramos de caviar firme como perlas, esencia de manzana verde, blinis de alforfón y crème fraîche.',
+      },
+      'kobe-carpaccio': {
+        name: 'Carpaccio de Buey de Kobe',
+        desc: 'Láminas finísimas de buey de Kobe con aceite de oliva prensado en frío, parmesano curado y pimienta.',
+      },
+      jamon: {
+        name: 'Jamón Ibérico de Bellota',
+        desc: 'Jamón de bellota curado cuarenta y ocho meses, cortado a cuchillo junto a la mesa.',
+      },
+      'foie-gras': {
+        name: 'Terrine de Foie Gras d’Oie',
+        desc: 'Terrina de foie de oca horneada lentamente, gelatina de Sauternes, membrillo y brioche tostado.',
+      },
+      'lazac-tartar': {
+        name: 'Tartar de Salmón Ōra King',
+        desc: 'Salmón Ōra King cortado a mano con yuzu, espárrago de mar y crema de yema ahumada.',
+      },
+      fesukagylo: {
+        name: 'Vieira de Hokkaido',
+        desc: 'Vieira de Hokkaido caramelizada en mantequilla, emulsión de mantequilla avellana y aceite de shiso, en su concha.',
+      },
+      libamaj: {
+        name: 'Hígado de Oca a la Sartén',
+        desc: 'Hígado de oca al punto rosado con pera asada, reducción de vino de Tokaj y brioche crujiente.',
+      },
+      'wagyu-ravioli': {
+        name: 'Raviolis de Wagyu y Trufa',
+        desc: 'Raviolis plegados a mano rellenos de wagyu estofado, trufa negra y glasa de tuétano.',
+      },
+      fecskefeszek: {
+        name: 'Sopa de Nido de Golondrina',
+        desc: 'El clásico manjar chino en un consomé de ave cristalino con crutones dorados.',
+      },
+      'homar-bisque': {
+        name: 'Bisque de Bogavante Azul',
+        desc: 'Bisque aterciopelada de bogavante azul de Bretaña, flambeada con coñac y nata de estragón.',
+      },
+      'szarvasgomba-leves': {
+        name: 'Crema de Trufa Blanca',
+        desc: 'Crema sedosa de trufa blanca de Alba con avellanas tostadas y gotas de aceite de trufa.',
+      },
+      'homar-rizotto': {
+        name: 'Bogavante Azul con Risotto al Azafrán',
+        desc: 'Bogavante azul pochado en mantequilla sobre risotto Carnaroli, azafrán y glasa de su bisque.',
+      },
+      'tonhal-steak': {
+        name: 'Filete de Atún O-Toro',
+        desc: 'El corte más graso de la ventresca de atún rojo: dorado por fuera, rosado por dentro, glasa de sésamo y ponzu.',
+      },
+      'tengeri-suger': {
+        name: 'Lubina Austral Glacier 51',
+        desc: 'De aguas antárticas: carne blanquísima que se deshace como mantequilla, con beurre blanc de yuzu.',
+      },
+      tokhal: {
+        name: 'Filete de Esturión Beluga',
+        desc: 'Esturión beluga asado lentamente, coronado con su propio caviar y velouté de champán sobre hielo.',
+      },
+      'wagyu-chateaubriand': {
+        name: 'Chateaubriand de Wagyu A5 en Corteza de Oro',
+        desc: 'Solomillo de wagyu A5 asado en corteza de oro comestible, jugo de tuétano ahumado, trinchado en la mesa.',
+      },
+      matsusaka: {
+        name: 'Matsusaka Sirloin',
+        desc: 'La carne más veteada del mundo, a la brasa de carbón binchotan, solo con sal marina.',
+      },
+      'poulet-bresse': {
+        name: 'Poulet de Bresse',
+        desc: 'Pollo de Bresse asado entero con salsa de vin jaune y trufa recién laminada, para dos.',
+      },
+      kurobuta: {
+        name: 'Panceta de Cerdo Kurobuta',
+        desc: 'Panceta de cerdo negro Berkshire con corteza cristalina, caramelo de miso y puré de patata ahumado.',
+      },
+      barany: {
+        name: 'Carré de Cordero de Nueva Zelanda',
+        desc: 'Carré de cordero de pasto en costra de romero, ajo negro y un jugo profundo de cordero.',
+      },
+      pule: {
+        name: 'Queso Pule',
+        desc: 'El queso más raro del mundo, de leche de burra serbia: veinticinco litros por un solo kilo.',
+      },
+      epoisses: {
+        name: 'Époisses de Bourgogne',
+        desc: 'Queso borgoñón lavado con Marc de Bourgogne, cremoso y fundente, con nueces e higo.',
+      },
+      'golden-opulence': {
+        name: 'Copa Golden Opulence',
+        desc: 'Helado de vainilla de Tahití con pan de oro de 23 quilates, chocolate Amedei y fruta confitada, en cristal.',
+      },
+      'yubari-parfe': {
+        name: 'Parfait de Melón Yubari King',
+        desc: 'Melón japonés Yubari King en parfait helado, con láminas frescas y shiso.',
+      },
+      macaron: {
+        name: 'Macarón de Trufa y Oro',
+        desc: 'Ganache de trufa negra en concha crujiente de macarón, espolvoreado con oro comestible.',
+      },
+      szufle: {
+        name: 'Suflé Amedei Porcelana',
+        desc: 'Suflé etéreo del raro cacao Porcelana, de corazón fundente, servido en el instante en que sube.',
+      },
+      tiramisu: {
+        name: 'Tiramisú Kopi Luwak',
+        desc: 'Tiramisú clásico embebido en café kopi luwak, en capas de mascarpone y cacao.',
+      },
+      'acqua-di-cristallo': {
+        name: 'Acqua di Cristallo Tributo a Modigliani',
+        desc: 'Ensamblaje de aguas de manantial de Fiyi y Francia con polvo de oro de 24 quilates, en vidrio artesanal.',
+      },
+      svalbardi: {
+        name: 'Svalbarði Polar Iceberg Water',
+        desc: 'Fundida de icebergs árticos de Svalbard: pureza intacta de cuatro mil años.',
+      },
+      fillico: {
+        name: 'Fillico Jewelry Water',
+        desc: 'Agua de manantial de Kobe en botella coronada, engastada con cristales de Swarovski.',
+      },
+      'black-ivory': {
+        name: 'Black Ivory Coffee',
+        desc: 'Arábica tailandés fermentado naturalmente por elefantes: el café más raro del mundo.',
+      },
+      'kopi-luwak': {
+        name: 'Café Kopi Luwak',
+        desc: 'Granos de Sumatra seleccionados por civetas salvajes: carácter suave y achocolatado.',
+      },
+      'da-hong-pao': {
+        name: 'Té Da Hong Pao',
+        desc: 'Oolong de arbustos descendientes de los árboles madre de Wuyi: profundo, mineral, final interminable.',
+      },
+      gyokuro: {
+        name: 'Té Gyokuro',
+        desc: 'Té verde japonés cultivado a la sombra: umami sedoso y frescura marina dulce.',
+      },
+      'armand-midas': {
+        name: 'Armand de Brignac Midas',
+        desc: 'Botella dorada de treinta litros: el gran ensamblaje de la casa a escala monumental.',
+      },
+      'dom-perignon-rose': {
+        name: 'Dom Pérignon Rosé Gold',
+        desc: 'Rosado vintage en botella vestida de oro: fruta roja madura y humo.',
+      },
+      salon: {
+        name: 'Salon Blanc de Blancs',
+        desc: 'Chardonnay de la creta de un solo pueblo, Le Mesnil-sur-Oger, solo en grandes añadas.',
+      },
+      'yquem-1811': {
+        name: 'Château d’Yquem 1811',
+        desc: 'La legendaria «añada del cometa» de Sauternes: dos siglos de sol convertidos en miel.',
+      },
+      'screaming-eagle': {
+        name: 'Screaming Eagle',
+        desc: 'El Cabernet de culto de Napa Valley: cosecha mínima, fruta negra, fuerza aterciopelada.',
+      },
+      drc: {
+        name: 'DRC Grand Cru',
+        desc: 'Pinot noir del corazón de Borgoña, del dominio de la Romanée-Conti: perfume etéreo, tanino de seda.',
+      },
+      'henri-iv': {
+        name: 'Henri IV Dudognon Cognac',
+        desc: 'Herencia de coñac envejecida cien años en roble, sellada en oro y cristal.',
+      },
+      'macallan-1926': {
+        name: 'Macallan 1926',
+        desc: 'Single malt de sesenta años de la destilación de 1926: la cumbre de la historia del whisky.',
+      },
+      'louis-xiii': {
+        name: 'Louis XIII Black Pearl',
+        desc: 'Ensamblaje de aguardientes de Grande Champagne en un decantador de cristal negro.',
+      },
+      'diamonds-martini': {
+        name: 'Martini «Diamonds Are Forever»',
+        desc: 'Martini de vodka helado con un diamante auténtico brillando en el fondo.',
+      },
+      'the-winston': {
+        name: '«The Winston»',
+        desc: 'Cóctel sobre coñacs centenarios con especias ahumadas: una rareza mezclada con paciencia.',
       },
     },
   },
