@@ -1,5 +1,13 @@
 export type Lang = 'hu' | 'en' | 'es';
 
+/** Per-member team texts; the name is identical across languages but still routed through i18n. */
+export type TeamMemberText = {
+  name: string;
+  role: string;
+  origin: string;
+  bio: string;
+};
+
 /** One string per location-gallery image, keyed by LocationImage id. */
 export type GalleryImageText = {
   homlokzat: string;
@@ -42,6 +50,18 @@ export type Dictionary = {
     captions: GalleryImageText;
     alts: GalleryImageText;
     lightbox: { close: string; prev: string; next: string };
+  };
+  team: {
+    groupCaption: string;
+    groupAlt: string;
+    members: {
+      julien: TeamMemberText;
+      alessandro: TeamMemberText;
+      margaux: TeamMemberText;
+      reka: TeamMemberText;
+      bence: TeamMemberText;
+      mate: TeamMemberText;
+    };
   };
   footer: {
     tagline: string;
@@ -93,7 +113,7 @@ const hu: Dictionary = {
   },
   sections: {
     helyszin: { eyebrow: 'A helyszín', title: 'Ahol az este *emlékké* válik.' },
-    csapat: { eyebrow: 'Konyha & Csapat', title: 'A precizitás művészei' },
+    csapat: { eyebrow: 'Konyha & Csapat', title: 'A *precizitás* művészei.' },
     etlap: { eyebrow: 'Étlap', title: 'Egy este partitúrája' },
     borkultura: { eyebrow: 'Borkultúra', title: 'A pince csendje' },
     foglalas: { eyebrow: 'Foglalás', title: 'Az Ön asztala' },
@@ -126,6 +146,48 @@ const hu: Dictionary = {
       close: 'Bezárás',
       prev: 'Előző kép',
       next: 'Következő kép',
+    },
+  },
+  team: {
+    groupCaption: 'Negyvenöt ember, egyetlen ütemre — az EPISTEME brigádja.',
+    groupAlt: 'Az étterem mintegy negyvenöt fős személyzete a homlokzat lépcsőjén, esti fényben',
+    members: {
+      julien: {
+        name: 'Julien Marchand',
+        role: 'Executive Chef',
+        origin: 'francia',
+        bio: 'Harminc év a tűzhely mellett, és máig az első szolgálat izgalmával lép a konyhába. Julien számára az ízlelés nem élvezet, hanem megismerés — minden tányér egy pontosan megfogalmazott gondolat. A konyhája csendes: nála a fegyelem a kreativitás legmagasabb formája.',
+      },
+      alessandro: {
+        name: 'Alessandro De Luca',
+        role: 'Maître d’hôtel',
+        origin: 'olasz',
+        bio: 'Alessandro szerint a vendéglátás olyan színház, ahol a legjobb előadás láthatatlan. Negyed évszázada olvas asztalokat: egy pillantásból tudja, mikor kell megjelenni, és mikor eltűnni. Az estéi végén a vendég nem kiszolgálva érzi magát — hanem megértve.',
+      },
+      margaux: {
+        name: 'Margaux Fournier',
+        role: 'Chef Sommelier',
+        origin: 'francia',
+        bio: 'Margaux a bort történetként kezeli, amelynek az évjárat csak az első mondata. Pincéje lassan, türelemmel épül — akárcsak a bizalom, amellyel a vendégek rábízzák az estéjüket. Ajánlásai sosem hivalkodóak: mindig az ételt, a pillanatot és az embert szolgálják.',
+      },
+      reka: {
+        name: 'Kovács Réka',
+        role: 'Recepció / Hostess',
+        origin: 'magyar',
+        bio: 'Réka az első hang a telefonban és az első mosoly az ajtóban — nála kezdődik az EPISTEME. Fejből tudja a visszatérő vendégek nevét, asztalát, sőt hallgatásaik okát is. Meggyőződése, hogy a figyelem a luxus legritkább formája.',
+      },
+      bence: {
+        name: 'Nagy Bence',
+        role: 'Chef Voiturier',
+        origin: 'magyar',
+        bio: 'Bence keze alatt már a megérkezés is szertartás: egy kitárt ajtó, egy halk köszöntés, és az autó hangtalanul eltűnik az éjszakában. Veterán és kortárs automobilok egyaránt rezzenés nélkül engedelmeskednek neki. Ő az este első és utolsó kézfogása — és mindkettőre emlékezni fog.',
+      },
+      mate: {
+        name: 'Szabó Máté',
+        role: 'Sous-Chef',
+        origin: 'magyar',
+        bio: 'Máté a konyha metronómja: ő tartja a ritmust, amikor ötven vendég estéje egyszerre készül. Napja a hajnali piacon kezdődik, és az utolsó tányér ellenőrzésével zárul. Julien mellett tanulta meg, hogy a tökéletesség nem cél, hanem munkamódszer.',
+      },
     },
   },
   footer: {
@@ -179,7 +241,7 @@ const en: Dictionary = {
   },
   sections: {
     helyszin: { eyebrow: 'The setting', title: 'Where the evening becomes a *memory*.' },
-    csapat: { eyebrow: 'Kitchen & Team', title: 'Artists of precision' },
+    csapat: { eyebrow: 'Kitchen & Team', title: 'Artists of *precision*.' },
     etlap: { eyebrow: 'Menu', title: 'The score of an evening' },
     borkultura: { eyebrow: 'Wine', title: 'The silence of the cellar' },
     foglalas: { eyebrow: 'Reservation', title: 'Your table' },
@@ -212,6 +274,48 @@ const en: Dictionary = {
       close: 'Close',
       prev: 'Previous image',
       next: 'Next image',
+    },
+  },
+  team: {
+    groupCaption: 'Forty-five people, one rhythm — the EPISTEME brigade.',
+    groupAlt: 'The restaurant’s staff of about forty-five on the front steps of the façade, in evening light',
+    members: {
+      julien: {
+        name: 'Julien Marchand',
+        role: 'Executive Chef',
+        origin: 'French',
+        bio: 'Thirty years at the stove, and he still enters the kitchen with the thrill of a first service. For Julien, taste is not pleasure but understanding — every plate a precisely worded thought. His kitchen is quiet: discipline, to him, is creativity’s highest form.',
+      },
+      alessandro: {
+        name: 'Alessandro De Luca',
+        role: 'Maître d’hôtel',
+        origin: 'Italian',
+        bio: 'Alessandro believes hospitality is theatre in which the finest performance is invisible. He has been reading tables for a quarter of a century: one glance tells him when to appear and when to vanish. At the end of his evenings, guests feel not served — but understood.',
+      },
+      margaux: {
+        name: 'Margaux Fournier',
+        role: 'Chef Sommelier',
+        origin: 'French',
+        bio: 'Margaux treats wine as a story in which the vintage is only the opening line. Her cellar is built slowly, with patience — like the trust guests place in her hands each evening. Her recommendations are never showy: they serve the dish, the moment, and the person.',
+      },
+      reka: {
+        name: 'Kovács Réka',
+        role: 'Reception / Hostess',
+        origin: 'Hungarian',
+        bio: 'Réka is the first voice on the telephone and the first smile at the door — EPISTEME begins with her. She knows returning guests’ names, their tables, even the reasons for their silences. She is convinced that attention is the rarest form of luxury.',
+      },
+      bence: {
+        name: 'Nagy Bence',
+        role: 'Chef Voiturier',
+        origin: 'Hungarian',
+        bio: 'In Bence’s hands, even arrival becomes ceremony: a door held open, a quiet greeting, and the car vanishes soundlessly into the night. Vintage and contemporary automobiles obey him without a tremor. He is the first and the last handshake of the evening — and he will remember both.',
+      },
+      mate: {
+        name: 'Szabó Máté',
+        role: 'Sous-Chef',
+        origin: 'Hungarian',
+        bio: 'Máté is the kitchen’s metronome: he keeps the rhythm while fifty guests’ evenings are prepared at once. His day begins at the dawn market and ends with the inspection of the final plate. Beside Julien he learned that perfection is not a goal but a method of work.',
+      },
     },
   },
   footer: {
@@ -265,7 +369,7 @@ const es: Dictionary = {
   },
   sections: {
     helyszin: { eyebrow: 'El espacio', title: 'Donde la noche se convierte en un *recuerdo*.' },
-    csapat: { eyebrow: 'Cocina y Equipo', title: 'Artistas de la precisión' },
+    csapat: { eyebrow: 'Cocina y Equipo', title: 'Artistas de la *precisión*.' },
     etlap: { eyebrow: 'Carta', title: 'La partitura de una noche' },
     borkultura: { eyebrow: 'Vinos', title: 'El silencio de la bodega' },
     foglalas: { eyebrow: 'Reserva', title: 'Su mesa' },
@@ -298,6 +402,48 @@ const es: Dictionary = {
       close: 'Cerrar',
       prev: 'Imagen anterior',
       next: 'Imagen siguiente',
+    },
+  },
+  team: {
+    groupCaption: 'Cuarenta y cinco personas, un solo ritmo: la brigada de EPISTEME.',
+    groupAlt: 'El personal del restaurante, de unas cuarenta y cinco personas, en la escalinata de la fachada al anochecer',
+    members: {
+      julien: {
+        name: 'Julien Marchand',
+        role: 'Executive Chef',
+        origin: 'francés',
+        bio: 'Treinta años junto a los fogones, y aún entra en la cocina con la emoción del primer servicio. Para Julien, el gusto no es placer sino conocimiento: cada plato es un pensamiento formulado con precisión. Su cocina es silenciosa; la disciplina es, para él, la forma más alta de la creatividad.',
+      },
+      alessandro: {
+        name: 'Alessandro De Luca',
+        role: 'Maître d’hôtel',
+        origin: 'italiano',
+        bio: 'Alessandro cree que la hospitalidad es un teatro donde la mejor actuación es invisible. Lleva un cuarto de siglo leyendo mesas: una mirada le basta para saber cuándo aparecer y cuándo desvanecerse. Al final de sus veladas, el huésped no se siente atendido, sino comprendido.',
+      },
+      margaux: {
+        name: 'Margaux Fournier',
+        role: 'Chef Sommelier',
+        origin: 'francesa',
+        bio: 'Margaux trata el vino como una historia en la que la añada es solo la primera frase. Su bodega se construye despacio, con paciencia, como la confianza que los huéspedes depositan en ella cada noche. Sus recomendaciones nunca son ostentosas: sirven al plato, al momento y a la persona.',
+      },
+      reka: {
+        name: 'Kovács Réka',
+        role: 'Recepción / Hostess',
+        origin: 'húngara',
+        bio: 'Réka es la primera voz al teléfono y la primera sonrisa en la puerta: EPISTEME comienza con ella. Conoce de memoria los nombres de los huéspedes que regresan, sus mesas e incluso el motivo de sus silencios. Está convencida de que la atención es la forma más rara del lujo.',
+      },
+      bence: {
+        name: 'Nagy Bence',
+        role: 'Chef Voiturier',
+        origin: 'húngaro',
+        bio: 'En manos de Bence, hasta la llegada se vuelve ceremonia: una puerta abierta, un saludo discreto, y el coche desaparece sin ruido en la noche. Automóviles clásicos y contemporáneos le obedecen por igual, sin un temblor. Es el primero y el último apretón de manos de la velada, y recordará ambos.',
+      },
+      mate: {
+        name: 'Szabó Máté',
+        role: 'Sous-Chef',
+        origin: 'húngaro',
+        bio: 'Máté es el metrónomo de la cocina: mantiene el ritmo cuando las veladas de cincuenta huéspedes se preparan a la vez. Su día empieza en el mercado al alba y termina con la revisión del último plato. Junto a Julien aprendió que la perfección no es una meta, sino un método de trabajo.',
+      },
     },
   },
   footer: {
