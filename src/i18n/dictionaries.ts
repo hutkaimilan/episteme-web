@@ -91,6 +91,18 @@ export type Dictionary = {
     suffixes: { portion: string; twoPersons: string };
     items: Record<MenuItemId, MenuItemText>;
   };
+  wineCulture: {
+    intro: string;
+    quote: string;
+    portraitAlt: string;
+    sommelierName: string;
+    sommelierRole: string;
+    highlights: {
+      champagne: { label: string; note: string };
+      burgundy: { label: string; note: string };
+      'rare-spirits': { label: string; note: string };
+    };
+  };
   footer: {
     tagline: string;
     addressLabel: string;
@@ -143,7 +155,7 @@ const hu: Dictionary = {
     helyszin: { eyebrow: 'A helyszín', title: 'Ahol az este *emlékké* válik.' },
     csapat: { eyebrow: 'Konyha & Csapat', title: 'A *precizitás* művészei.' },
     etlap: { eyebrow: 'Az étlap', title: 'Egy este. Ezer *finomság*.' },
-    borkultura: { eyebrow: 'Borkultúra', title: 'A pince csendje' },
+    borkultura: { eyebrow: 'Borkultúra', title: 'A pohár, ami *elmesél* egy tájat.' },
     foglalas: { eyebrow: 'Foglalás', title: 'Az Ön asztala' },
     kapcsolat: { eyebrow: 'Kapcsolat', title: 'Írjon nekünk' },
   },
@@ -427,6 +439,29 @@ const hu: Dictionary = {
       },
     },
   },
+  wineCulture: {
+    intro:
+      'Margaux Fournier pincéje nem gyűjtemény, hanem elbeszélés: minden palack egy táj, egy évjárat és egy kéz emlékezete. Párosításai nem szabályokat követnek, hanem az este ívét — azt, ahogy egy fogás feszültsége egyetlen korty csendjében oldódik fel. A borlap ezért nála sosem végleges: együtt lélegzik a konyhával.',
+    quote: 'Sosem palackot választok — pillanatot.',
+    portraitAlt:
+      'Margaux Fournier Chef Sommelier bordó bársonyöltönyben, kezében borospohárral, mögötte megvilágított borospolcok',
+    sommelierName: 'Margaux Fournier',
+    sommelierRole: 'Chef Sommelier',
+    highlights: {
+      champagne: {
+        label: 'Pezsgők & Millésime-ek',
+        note: 'Az estét kistermelői pezsgők és ritka évjáratok nyitják: a krétás talajok feszes ásványossága ébreszti fel az ízlelést.',
+      },
+      burgundy: {
+        label: 'Nagy Borvidékek',
+        note: 'A kóstolómenü ívét burgundi és bordeaux-i tételek kísérik — a fogások ritmusához hangolva, sosem fordítva.',
+      },
+      'rare-spirits': {
+        label: 'Ritka Párlatok',
+        note: 'Az este zárása egy évtizedekig érlelt cognac vagy whisky — lassan, kis pohárból, hogy az emlék tovább tartson az íznél.',
+      },
+    },
+  },
   footer: {
     tagline: 'Az ízlelés tudománya.',
     addressLabel: 'Cím',
@@ -480,7 +515,7 @@ const en: Dictionary = {
     helyszin: { eyebrow: 'The setting', title: 'Where the evening becomes a *memory*.' },
     csapat: { eyebrow: 'Kitchen & Team', title: 'Artists of *precision*.' },
     etlap: { eyebrow: 'The menu', title: 'One evening. A thousand *refinements*.' },
-    borkultura: { eyebrow: 'Wine', title: 'The silence of the cellar' },
+    borkultura: { eyebrow: 'Wine culture', title: 'The glass that *tells* a landscape.' },
     foglalas: { eyebrow: 'Reservation', title: 'Your table' },
     kapcsolat: { eyebrow: 'Contact', title: 'Write to us' },
   },
@@ -764,6 +799,29 @@ const en: Dictionary = {
       },
     },
   },
+  wineCulture: {
+    intro:
+      'Margaux Fournier’s cellar is not a collection but a narrative: every bottle holds the memory of a landscape, a vintage, a hand. Her pairings follow no rulebook — only the arc of the evening, the way a course’s tension dissolves in the quiet of a single sip. Her wine list is never finished: it breathes with the kitchen.',
+    quote: 'I never choose a bottle — I choose a moment.',
+    portraitAlt:
+      'Margaux Fournier, Chef Sommelier, in a burgundy velvet suit holding a glass of wine, lit wine shelves behind her',
+    sommelierName: 'Margaux Fournier',
+    sommelierRole: 'Chef Sommelier',
+    highlights: {
+      champagne: {
+        label: 'Champagnes & Vintages',
+        note: 'The evening opens with grower champagnes and rare millésimes: the taut, chalk-soil minerality that wakes the palate.',
+      },
+      burgundy: {
+        label: 'Great Wine Regions',
+        note: 'Burgundy and Bordeaux carry the arc of the tasting menu — tuned to the rhythm of the courses, never the other way around.',
+      },
+      'rare-spirits': {
+        label: 'Rare Spirits',
+        note: 'The evening closes with a cognac or whisky aged for decades — slowly, from a small glass, so the memory outlasts the taste.',
+      },
+    },
+  },
   footer: {
     tagline: 'The science of taste.',
     addressLabel: 'Address',
@@ -817,7 +875,7 @@ const es: Dictionary = {
     helyszin: { eyebrow: 'El espacio', title: 'Donde la noche se convierte en un *recuerdo*.' },
     csapat: { eyebrow: 'Cocina y Equipo', title: 'Artistas de la *precisión*.' },
     etlap: { eyebrow: 'La carta', title: 'Una noche. Mil *refinamientos*.' },
-    borkultura: { eyebrow: 'Vinos', title: 'El silencio de la bodega' },
+    borkultura: { eyebrow: 'Cultura del vino', title: 'La copa que *cuenta* un paisaje.' },
     foglalas: { eyebrow: 'Reserva', title: 'Su mesa' },
     kapcsolat: { eyebrow: 'Contacto', title: 'Escríbanos' },
   },
@@ -1098,6 +1156,29 @@ const es: Dictionary = {
       'the-winston': {
         name: '«The Winston»',
         desc: 'Cóctel sobre coñacs centenarios con especias ahumadas: una rareza mezclada con paciencia.',
+      },
+    },
+  },
+  wineCulture: {
+    intro:
+      'La bodega de Margaux Fournier no es una colección, sino un relato: cada botella guarda la memoria de un paisaje, una añada y una mano. Sus maridajes no siguen reglas, sino el arco de la velada: la manera en que la tensión de un plato se disuelve en el silencio de un sorbo. Por eso su carta nunca está terminada: respira con la cocina.',
+    quote: 'Nunca elijo una botella: elijo un momento.',
+    portraitAlt:
+      'Margaux Fournier, Chef Sommelier, con traje de terciopelo burdeos y una copa de vino, ante estanterías de vino iluminadas',
+    sommelierName: 'Margaux Fournier',
+    sommelierRole: 'Chef Sommelier',
+    highlights: {
+      champagne: {
+        label: 'Champanes y Añadas',
+        note: 'La velada se abre con champanes de pequeños viticultores y añadas raras: la mineralidad tensa de los suelos de creta que despierta el paladar.',
+      },
+      burgundy: {
+        label: 'Grandes Regiones Vinícolas',
+        note: 'Borgoña y Burdeos sostienen el arco del menú de degustación, afinados al ritmo de los platos, nunca al revés.',
+      },
+      'rare-spirits': {
+        label: 'Destilados Raros',
+        note: 'La velada se cierra con un coñac o un whisky envejecido durante décadas: despacio, en copa pequeña, para que el recuerdo dure más que el sabor.',
       },
     },
   },
