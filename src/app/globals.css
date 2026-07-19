@@ -1,0 +1,83 @@
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+
+:root {
+  --obsidian: #0a0908;
+  --obsidian-800: #12100d;
+  --obsidian-700: #1a1712;
+  --gold: #c6a15b;
+  --gold-bright: #e3c77e;
+  --gold-deep: #8c6d2f;
+  --ivory: #f1e9dc;
+  --ivory-muted: #c9c1b4;
+  --ivory-faint: #8e877a;
+  --line: rgba(198, 161, 91, 0.18);
+  --wine: #5a2a2e;
+  --ease-luxe: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+body {
+  background-color: var(--obsidian);
+  color: var(--ivory-muted);
+  font-family: var(--font-inter), Inter, sans-serif;
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: rgba(198, 161, 91, 0.35);
+  color: var(--ivory);
+}
+
+/* Custom scrollbar — thin, obsidian + gold */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-deep) var(--obsidian);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--obsidian);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gold-deep);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gold);
+}
+
+/* Visible gold focus states for accessibility */
+:focus-visible {
+  outline: 1px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
