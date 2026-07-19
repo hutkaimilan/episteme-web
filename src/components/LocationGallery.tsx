@@ -116,11 +116,12 @@ function GalleryItem({
           style={{ y: reduceMotion ? 0 : y }}
           className="absolute -inset-y-10 inset-x-0"
         >
+          {/* No `priority` here: the grid sits below the fold — the Hero is
+              the sole LCP candidate and must not compete for bandwidth. */}
           <Image
             src={item.image}
             alt={t(item.altKey)}
             fill
-            priority={item.id === 'homlokzat'}
             sizes={SIZES_ATTR[item.size]}
             className="object-cover transition-transform duration-[1400ms] ease-luxe group-hover:scale-[1.03]"
           />

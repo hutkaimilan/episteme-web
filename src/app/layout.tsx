@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Cormorant_Garamond, Inter } from 'next/font/google';
 import { LanguageProvider } from '@/i18n/LanguageProvider';
+import ScrollProgress from '@/components/ScrollProgress';
 import './globals.css';
 
 const cormorant = Cormorant_Garamond({
@@ -73,6 +74,7 @@ export default function RootLayout({
       <body
         className={`${cormorant.variable} ${inter.variable} bg-obsidian font-sans text-ivory-muted antialiased`}
       >
+        <ScrollProgress />
         <LanguageProvider>{children}</LanguageProvider>
       </body>
     </html>

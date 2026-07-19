@@ -116,6 +116,16 @@ export type Dictionary = {
     guestsUnit: string;
     emailFailed: string;
   };
+  contact: {
+    addressLabel: string;
+    hoursLabel: string;
+    emailLabel: string;
+    mapCta: string;
+  };
+  notFound: {
+    title: string;
+    message: string;
+  };
   footer: {
     tagline: string;
     addressLabel: string;
@@ -170,7 +180,7 @@ const hu: Dictionary = {
     etlap: { eyebrow: 'Az étlap', title: 'Egy este. Ezer *finomság*.' },
     borkultura: { eyebrow: 'Borkultúra', title: 'A pohár, ami *elmesél* egy tájat.' },
     foglalas: { eyebrow: 'Foglalás', title: 'Mondja el, mikor. Mi *elkészítjük* a helyet.' },
-    kapcsolat: { eyebrow: 'Kapcsolat', title: 'Írjon nekünk' },
+    kapcsolat: { eyebrow: 'Kapcsolat', title: 'Várjuk *Önt* a Duna partján.' },
   },
   gallery: {
     captions: {
@@ -491,6 +501,17 @@ const hu: Dictionary = {
     emailFailed:
       'Az e-mail visszaigazolást most nem sikerült elküldeni — foglalása ettől függetlenül érvényes.',
   },
+  contact: {
+    addressLabel: 'Cím',
+    hoursLabel: 'Nyitvatartás',
+    emailLabel: 'E-mail',
+    mapCta: 'Térkép megnyitása',
+  },
+  notFound: {
+    title: 'Ez az asztal *nem létezik*.',
+    message:
+      'A keresett oldal nem található — engedje meg, hogy visszakísérjük a főoldalra.',
+  },
   footer: {
     tagline: 'Az ízlelés tudománya.',
     addressLabel: 'Cím',
@@ -546,7 +567,7 @@ const en: Dictionary = {
     etlap: { eyebrow: 'The menu', title: 'One evening. A thousand *refinements*.' },
     borkultura: { eyebrow: 'Wine culture', title: 'The glass that *tells* a landscape.' },
     foglalas: { eyebrow: 'Reservation', title: 'Tell us when. We’ll *prepare* the seat.' },
-    kapcsolat: { eyebrow: 'Contact', title: 'Write to us' },
+    kapcsolat: { eyebrow: 'Contact', title: 'We await *you* on the Danube.' },
   },
   gallery: {
     captions: {
@@ -867,6 +888,17 @@ const en: Dictionary = {
     emailFailed:
       'The e-mail confirmation could not be sent just now — your reservation remains valid regardless.',
   },
+  contact: {
+    addressLabel: 'Address',
+    hoursLabel: 'Opening hours',
+    emailLabel: 'E-mail',
+    mapCta: 'Open map',
+  },
+  notFound: {
+    title: 'This table *does not exist*.',
+    message:
+      'The page you are looking for cannot be found — allow us to escort you back to the homepage.',
+  },
   footer: {
     tagline: 'The science of taste.',
     addressLabel: 'Address',
@@ -922,7 +954,7 @@ const es: Dictionary = {
     etlap: { eyebrow: 'La carta', title: 'Una noche. Mil *refinamientos*.' },
     borkultura: { eyebrow: 'Cultura del vino', title: 'La copa que *cuenta* un paisaje.' },
     foglalas: { eyebrow: 'Reserva', title: 'Díganos cuándo. Nosotros *prepararemos* el lugar.' },
-    kapcsolat: { eyebrow: 'Contacto', title: 'Escríbanos' },
+    kapcsolat: { eyebrow: 'Contacto', title: 'Le *esperamos* junto al Danubio.' },
   },
   gallery: {
     captions: {
@@ -1242,6 +1274,17 @@ const es: Dictionary = {
     guestsUnit: 'personas',
     emailFailed:
       'No se ha podido enviar la confirmación por correo electrónico; su reserva sigue siendo válida.',
+  },
+  contact: {
+    addressLabel: 'Dirección',
+    hoursLabel: 'Horario',
+    emailLabel: 'Correo electrónico',
+    mapCta: 'Abrir mapa',
+  },
+  notFound: {
+    title: 'Esta mesa *no existe*.',
+    message:
+      'La página que busca no se encuentra; permítanos acompañarle de vuelta a la página principal.',
   },
   footer: {
     tagline: 'La ciencia del gusto.',
