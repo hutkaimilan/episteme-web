@@ -103,6 +103,19 @@ export type Dictionary = {
       'rare-spirits': { label: string; note: string };
     };
   };
+  reservation: {
+    greeting: string;
+    placeholder: string;
+    send: string;
+    transcriptLabel: string;
+    typing: string;
+    toolChecking: string;
+    toolBooking: string;
+    connectionError: string;
+    ledgerTitle: string;
+    guestsUnit: string;
+    emailFailed: string;
+  };
   footer: {
     tagline: string;
     addressLabel: string;
@@ -156,7 +169,7 @@ const hu: Dictionary = {
     csapat: { eyebrow: 'Konyha & Csapat', title: 'A *precizitás* művészei.' },
     etlap: { eyebrow: 'Az étlap', title: 'Egy este. Ezer *finomság*.' },
     borkultura: { eyebrow: 'Borkultúra', title: 'A pohár, ami *elmesél* egy tájat.' },
-    foglalas: { eyebrow: 'Foglalás', title: 'Az Ön asztala' },
+    foglalas: { eyebrow: 'Foglalás', title: 'Mondja el, mikor. Mi *elkészítjük* a helyet.' },
     kapcsolat: { eyebrow: 'Kapcsolat', title: 'Írjon nekünk' },
   },
   gallery: {
@@ -462,6 +475,22 @@ const hu: Dictionary = {
       },
     },
   },
+  reservation: {
+    greeting:
+      'Jó estét kívánunk — köszöntjük az EPISTEME recepcióján. Örömmel segítünk asztalt foglalni: kérem, ossza meg velünk, hány főre és melyik estére gondolt. Tájékoztatjuk, hogy a foglaláshoz 275,59 € előleg szükséges; minimális fogyasztást nem kérünk, dress code nincs — bárki foglalhat.',
+    placeholder: 'Írja ide üzenetét…',
+    send: 'Küldés',
+    transcriptLabel: 'Foglalási beszélgetés',
+    typing: 'A recepció írja a választ…',
+    toolChecking: 'Elérhetőség ellenőrzése…',
+    toolBooking: 'Foglalás rögzítése…',
+    connectionError:
+      'Elnézését kérjük, a kapcsolat megszakadt — kérem, próbálja meg újra néhány pillanat múlva.',
+    ledgerTitle: 'Rögzített foglalásai',
+    guestsUnit: 'fő',
+    emailFailed:
+      'Az e-mail visszaigazolást most nem sikerült elküldeni — foglalása ettől függetlenül érvényes.',
+  },
   footer: {
     tagline: 'Az ízlelés tudománya.',
     addressLabel: 'Cím',
@@ -516,7 +545,7 @@ const en: Dictionary = {
     csapat: { eyebrow: 'Kitchen & Team', title: 'Artists of *precision*.' },
     etlap: { eyebrow: 'The menu', title: 'One evening. A thousand *refinements*.' },
     borkultura: { eyebrow: 'Wine culture', title: 'The glass that *tells* a landscape.' },
-    foglalas: { eyebrow: 'Reservation', title: 'Your table' },
+    foglalas: { eyebrow: 'Reservation', title: 'Tell us when. We’ll *prepare* the seat.' },
     kapcsolat: { eyebrow: 'Contact', title: 'Write to us' },
   },
   gallery: {
@@ -822,6 +851,22 @@ const en: Dictionary = {
       },
     },
   },
+  reservation: {
+    greeting:
+      'Good evening — welcome to the EPISTEME reception. We would be delighted to reserve your table: please tell us for how many guests and which evening you have in mind. Kindly note that a deposit of 275,59 € is required per reservation; there is no minimum spend and no dress code — anyone may book.',
+    placeholder: 'Type your message…',
+    send: 'Send',
+    transcriptLabel: 'Reservation conversation',
+    typing: 'The reception is writing…',
+    toolChecking: 'Checking availability…',
+    toolBooking: 'Recording your reservation…',
+    connectionError:
+      'Our apologies — the connection was interrupted. Please try again in a moment.',
+    ledgerTitle: 'Your reservations',
+    guestsUnit: 'guests',
+    emailFailed:
+      'The e-mail confirmation could not be sent just now — your reservation remains valid regardless.',
+  },
   footer: {
     tagline: 'The science of taste.',
     addressLabel: 'Address',
@@ -876,7 +921,7 @@ const es: Dictionary = {
     csapat: { eyebrow: 'Cocina y Equipo', title: 'Artistas de la *precisión*.' },
     etlap: { eyebrow: 'La carta', title: 'Una noche. Mil *refinamientos*.' },
     borkultura: { eyebrow: 'Cultura del vino', title: 'La copa que *cuenta* un paisaje.' },
-    foglalas: { eyebrow: 'Reserva', title: 'Su mesa' },
+    foglalas: { eyebrow: 'Reserva', title: 'Díganos cuándo. Nosotros *prepararemos* el lugar.' },
     kapcsolat: { eyebrow: 'Contacto', title: 'Escríbanos' },
   },
   gallery: {
@@ -1181,6 +1226,22 @@ const es: Dictionary = {
         note: 'La velada se cierra con un coñac o un whisky envejecido durante décadas: despacio, en copa pequeña, para que el recuerdo dure más que el sabor.',
       },
     },
+  },
+  reservation: {
+    greeting:
+      'Buenas noches — bienvenido a la recepción de EPISTEME. Será un placer reservarle una mesa: indíquenos, por favor, para cuántas personas y qué noche desea. Le informamos de que la reserva requiere un depósito de 275,59 €; no exigimos consumo mínimo ni código de vestimenta — cualquiera puede reservar.',
+    placeholder: 'Escriba su mensaje…',
+    send: 'Enviar',
+    transcriptLabel: 'Conversación de reserva',
+    typing: 'La recepción está escribiendo…',
+    toolChecking: 'Comprobando disponibilidad…',
+    toolBooking: 'Registrando su reserva…',
+    connectionError:
+      'Le rogamos nos disculpe: la conexión se ha interrumpido. Inténtelo de nuevo en unos instantes.',
+    ledgerTitle: 'Sus reservas',
+    guestsUnit: 'personas',
+    emailFailed:
+      'No se ha podido enviar la confirmación por correo electrónico; su reserva sigue siendo válida.',
   },
   footer: {
     tagline: 'La ciencia del gusto.',
