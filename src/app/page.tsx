@@ -1,11 +1,11 @@
 import Nav from '@/components/Nav';
 import Hero from '@/components/Hero';
+import LocationGallery from '@/components/LocationGallery';
 import SectionStub from '@/components/SectionStub';
 import Footer from '@/components/Footer';
 import CookieBanner from '@/components/CookieBanner';
 
 const STUBBED_SECTIONS = [
-  { id: 'helyszin', i18nKey: 'sections.helyszin' },
   { id: 'csapat', i18nKey: 'sections.csapat' },
   { id: 'etlap', i18nKey: 'sections.etlap' },
   { id: 'borkultura', i18nKey: 'sections.borkultura' },
@@ -19,6 +19,7 @@ export default function Home() {
       <Nav />
       <main>
         <Hero />
+        <LocationGallery />
         {STUBBED_SECTIONS.map((section) => (
           <SectionStub key={section.id} id={section.id} i18nKey={section.i18nKey} />
         ))}

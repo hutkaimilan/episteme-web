@@ -1,5 +1,15 @@
 export type Lang = 'hu' | 'en' | 'es';
 
+/** One string per location-gallery image, keyed by LocationImage id. */
+export type GalleryImageText = {
+  homlokzat: string;
+  'fo-terem': string;
+  'rooftop-bar': string;
+  diszasztal: string;
+  'rooftop-terasz': string;
+  terasz: string;
+};
+
 export type Dictionary = {
   nav: {
     location: string;
@@ -27,6 +37,11 @@ export type Dictionary = {
     borkultura: { eyebrow: string; title: string };
     foglalas: { eyebrow: string; title: string };
     kapcsolat: { eyebrow: string; title: string };
+  };
+  gallery: {
+    captions: GalleryImageText;
+    alts: GalleryImageText;
+    lightbox: { close: string; prev: string; next: string };
   };
   footer: {
     tagline: string;
@@ -77,12 +92,41 @@ const hu: Dictionary = {
       'Az EPISTEME étterem esti homlokzata vörös szőnyeggel a budapesti Kossuth Lajos téren',
   },
   sections: {
-    helyszin: { eyebrow: 'A helyszín', title: 'Terek, amelyek hallgatnak' },
+    helyszin: { eyebrow: 'A helyszín', title: 'Ahol az este *emlékké* válik.' },
     csapat: { eyebrow: 'Konyha & Csapat', title: 'A precizitás művészei' },
     etlap: { eyebrow: 'Étlap', title: 'Egy este partitúrája' },
     borkultura: { eyebrow: 'Borkultúra', title: 'A pince csendje' },
     foglalas: { eyebrow: 'Foglalás', title: 'Az Ön asztala' },
     kapcsolat: { eyebrow: 'Kapcsolat', title: 'Írjon nekünk' },
+  },
+  gallery: {
+    captions: {
+      homlokzat: 'A bejárat — az első pillanat, ami mindent elmond.',
+      'fo-terem': 'A fő terem — kristályfény alatt lassul az idő.',
+      'rooftop-bar': 'A rooftop bar — háttérben a város minden fénye.',
+      diszasztal: 'A díszasztal — azoknak, akiknek a diszkréció természetes.',
+      'rooftop-terasz': 'A tetőterasz — szabad ég, odalent a Duna.',
+      terasz: 'A terasz — fényfüzérek az esti utca felett.',
+    },
+    alts: {
+      homlokzat:
+        'Az étterem esti homlokzata vörös szőnyeggel és veterán luxusautóval, háttérben a Parlament',
+      'fo-terem':
+        'A fő étterem kristálycsillárral, bordó bársonyszékekkel és nagyméretű festménnyel',
+      'rooftop-bar':
+        'A rooftop bar fekete márványpulttal és üvegfallal, kilátással a Parlamentre',
+      diszasztal:
+        'Privát díszasztal gyertyatartókkal, mögötte bronz-arany festmény',
+      'rooftop-terasz':
+        'Tetőterasz smaragdzöld bársonyfotelekkel és tűzrakókkal, kilátással a Parlamentre',
+      terasz:
+        'Utcaszinti terasz olajfákkal és fényfüzérekkel, háttérben a Parlament',
+    },
+    lightbox: {
+      close: 'Bezárás',
+      prev: 'Előző kép',
+      next: 'Következő kép',
+    },
   },
   footer: {
     tagline: 'Az ízlelés tudománya.',
@@ -134,12 +178,41 @@ const en: Dictionary = {
       'The evening façade of EPISTEME restaurant with a red carpet on Kossuth Lajos Square, Budapest',
   },
   sections: {
-    helyszin: { eyebrow: 'The location', title: 'Rooms that keep silence' },
+    helyszin: { eyebrow: 'The setting', title: 'Where the evening becomes a *memory*.' },
     csapat: { eyebrow: 'Kitchen & Team', title: 'Artists of precision' },
     etlap: { eyebrow: 'Menu', title: 'The score of an evening' },
     borkultura: { eyebrow: 'Wine', title: 'The silence of the cellar' },
     foglalas: { eyebrow: 'Reservation', title: 'Your table' },
     kapcsolat: { eyebrow: 'Contact', title: 'Write to us' },
+  },
+  gallery: {
+    captions: {
+      homlokzat: 'The entrance — the first moment that says everything.',
+      'fo-terem': 'The main room — time slows beneath the chandelier.',
+      'rooftop-bar': 'The rooftop bar — the skyline as a backdrop.',
+      diszasztal: 'The private table — for those who require discretion.',
+      'rooftop-terasz': 'The rooftop terrace — open air, the Danube below.',
+      terasz: 'The terrace — string lights above the evening street.',
+    },
+    alts: {
+      homlokzat:
+        'The restaurant’s evening façade with a red carpet and a vintage luxury car, Parliament in the background',
+      'fo-terem':
+        'The main dining room with a crystal chandelier, burgundy velvet chairs and a large painting',
+      'rooftop-bar':
+        'The rooftop bar with a black marble counter and glass wall overlooking Parliament',
+      diszasztal:
+        'A private ceremonial table with candelabras, a bronze-and-gold painting behind it',
+      'rooftop-terasz':
+        'The rooftop terrace with emerald velvet armchairs and fire pits overlooking Parliament',
+      terasz:
+        'The street-level terrace with olive trees and string lights, Parliament in the background',
+    },
+    lightbox: {
+      close: 'Close',
+      prev: 'Previous image',
+      next: 'Next image',
+    },
   },
   footer: {
     tagline: 'The science of taste.',
@@ -191,12 +264,41 @@ const es: Dictionary = {
       'La fachada nocturna del restaurante EPISTEME con alfombra roja en la plaza Kossuth Lajos de Budapest',
   },
   sections: {
-    helyszin: { eyebrow: 'La ubicación', title: 'Espacios que guardan silencio' },
+    helyszin: { eyebrow: 'El espacio', title: 'Donde la noche se convierte en un *recuerdo*.' },
     csapat: { eyebrow: 'Cocina y Equipo', title: 'Artistas de la precisión' },
     etlap: { eyebrow: 'Carta', title: 'La partitura de una noche' },
     borkultura: { eyebrow: 'Vinos', title: 'El silencio de la bodega' },
     foglalas: { eyebrow: 'Reserva', title: 'Su mesa' },
     kapcsolat: { eyebrow: 'Contacto', title: 'Escríbanos' },
+  },
+  gallery: {
+    captions: {
+      homlokzat: 'La entrada — el primer instante que lo dice todo.',
+      'fo-terem': 'La sala principal — el tiempo se detiene bajo la lámpara.',
+      'rooftop-bar': 'El bar de la azotea — la ciudad como telón de fondo.',
+      diszasztal: 'La mesa privada — para quienes exigen discreción.',
+      'rooftop-terasz': 'La terraza superior — cielo abierto, el Danubio abajo.',
+      terasz: 'La terraza — luces suspendidas sobre la calle nocturna.',
+    },
+    alts: {
+      homlokzat:
+        'Fachada nocturna del restaurante con alfombra roja y un coche clásico de lujo, con el Parlamento al fondo',
+      'fo-terem':
+        'La sala principal con lámpara de cristal, sillas de terciopelo burdeos y una gran pintura',
+      'rooftop-bar':
+        'El bar de la azotea con barra de mármol negro y pared de cristal con vistas al Parlamento',
+      diszasztal:
+        'Mesa privada de gala con candelabros y una pintura en bronce y oro detrás',
+      'rooftop-terasz':
+        'Terraza superior con sillones de terciopelo esmeralda y fogatas, con vistas al Parlamento',
+      terasz:
+        'Terraza a pie de calle con olivos y luces colgantes, con el Parlamento al fondo',
+    },
+    lightbox: {
+      close: 'Cerrar',
+      prev: 'Imagen anterior',
+      next: 'Imagen siguiente',
+    },
   },
   footer: {
     tagline: 'La ciencia del gusto.',
