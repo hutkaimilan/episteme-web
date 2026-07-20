@@ -58,10 +58,17 @@ CONVERSATION RULES:
 - Keep messages concise and gracious — a maître d's tone, never chatty.`;
 }
 
+/** Never let the API key leak into logs (it is part of the request URL). */
+function redactKey(value: string): string {
+  const apiKey = process.env.GEMINI_API_KEY;
+  return apiKey ? value.split(apiKey).join('[REDACTED_KEY]') : value;
+}
+
 /** Real model caller; injected into the engine so tests can substitute a mock. */
 async function callGemini(messages: ChatMessage[], systemSuffix: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
+    console.error('[GEMINI_ERROR] GEMINI_API_KEY is not set in the environment — the receptionist cannot reach Gemini at all');
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
@@ -72,32 +79,51 @@ async function callGemini(messages: ChatMessage[], systemSuffix: string): Promis
       ? [{ role: 'user', content: '[RENDSZER] A vendég megnyitotta a foglalási felületet.' }, ...messages]
       : messages;
 
-  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt() + systemSuffix }] },
-      contents: apiMessages.map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      })),
-      generationConfig: { maxOutputTokens: MAX_TOKENS, temperature: 0.7 },
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt() + systemSuffix }] },
+        contents: apiMessages.map((m) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        })),
+        generationConfig: { maxOutputTokens: MAX_TOKENS, temperature: 0.7 },
+      }),
+    });
+  } catch (err) {
+    console.error(
+      '[GEMINI_ERROR] Gemini fetch failed (network/DNS/TLS):',
+      redactKey(err instanceof Error ? `${err.message} | cause: ${String((err as Error & { cause?: unknown }).cause ?? 'n/a')}` : String(err)),
+    );
+    throw err;
+  }
 
   if (!res.ok) {
+    const bodyText = await res.text().catch(() => '<unreadable body>');
+    console.error(`[GEMINI_ERROR] Gemini HTTP ${res.status} ${res.statusText}:`, redactKey(bodyText.slice(0, 2000)));
     throw new Error(`Gemini API error ${res.status}`);
   }
 
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
+  const rawBody = await res.text();
+  let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  try {
+    data = JSON.parse(rawBody) as typeof data;
+  } catch (err) {
+    console.error('[GEMINI_ERROR] Gemini 200 response was not valid JSON:', redactKey(rawBody.slice(0, 2000)), err);
+    throw new Error('Gemini response JSON parse failure');
+  }
+
   const text = (data.candidates?.[0]?.content?.parts ?? [])
     .map((part) => part.text ?? '')
     .join('');
   if (!text) {
-    // Empty/missing candidates (e.g. a blocked response): throwing routes the
+    // Empty/missing candidates (e.g. a safety-blocked response): the full body
+    // (incl. promptFeedback/finishReason) is logged, then throwing routes the
     // turn into the engine's graceful, guest-language {"type":"say"} fallback.
+    console.error('[GEMINI_ERROR] Gemini returned no candidates / empty text; full body:', redactKey(rawBody.slice(0, 2000)));
     throw new Error('empty model response');
   }
   return text;
@@ -138,8 +164,9 @@ export async function POST(request: Request) {
   try {
     const result = await runTurn(history, callGemini);
     return NextResponse.json(result);
-  } catch {
+  } catch (err) {
     // Absolute last resort — runTurn already degrades gracefully internally.
+    console.error('[GEMINI_ERROR] unhandled error escaped the chat engine:', err);
     return NextResponse.json({
       message: fallbackMessage(history),
       toolCalls: [],
