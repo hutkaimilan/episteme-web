@@ -62,6 +62,13 @@ export default function ReservationSection() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Some EmailJS SDK setups require an explicit init before send() works;
+  // v4 also accepts a per-call publicKey, so doing both is safe and covers
+  // either path.
+  useEffect(() => {
+    emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+  }, []);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el) {
@@ -70,24 +77,39 @@ export default function ReservationSection() {
   }, [transcript, activePill, pending, reduceMotion]);
 
   const sendConfirmationEmail = async (call: ToolEvent) => {
+    // Template variable names must exactly match the EmailJS dashboard
+    // template: guest_name, guest_phone, reservation_date, reservation_time,
+    // guest_count, confirmation_code.
+    const templateParams = {
+      guest_name: String(call.input.name ?? ''),
+      guest_phone: String(call.input.phone ?? ''),
+      reservation_date: String(call.input.date ?? ''),
+      reservation_time: String(call.input.time ?? ''),
+      guest_count: String(call.input.guests ?? ''),
+      confirmation_code: String(call.result.confirmationCode ?? ''),
+    };
+    console.log(
+      '[EMAILJS_DEBUG] attempting send',
+      JSON.stringify({
+        serviceId: EMAILJS_SERVICE_ID,
+        templateId: EMAILJS_TEMPLATE_ID,
+        templateParams,
+      }),
+    );
     try {
-      await emailjs.send(
+      const response = await emailjs.send(
         EMAILJS_SERVICE_ID,
         EMAILJS_TEMPLATE_ID,
-        {
-          guest_name: String(call.input.name ?? ''),
-          guest_phone: String(call.input.phone ?? ''),
-          reservation_date: String(call.input.date ?? ''),
-          reservation_time: String(call.input.time ?? ''),
-          guest_count: String(call.input.guests ?? ''),
-          confirmation_code: String(call.result.confirmationCode ?? ''),
-        },
+        templateParams,
         { publicKey: EMAILJS_PUBLIC_KEY },
       );
+      console.log('[EMAILJS_DEBUG] send succeeded:', response.status, response.text);
     } catch (err) {
       // The booking itself already succeeded server-side; e-mail delivery is
       // best-effort — surface only a subtle non-blocking note.
-      console.error('EmailJS send failed', err);
+      const status = (err as { status?: number })?.status;
+      const text = (err as { text?: string })?.text;
+      console.error('[EMAILJS_ERROR] send failed:', err, '| status:', status ?? 'n/a', '| text:', text ?? 'n/a');
       setEmailFailed(true);
     }
   };
