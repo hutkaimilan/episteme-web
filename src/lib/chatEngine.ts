@@ -122,7 +122,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       raw = await callModel(messages, retriedProtocol ? PROTOCOL_REMINDER : '');
       modelCalls++;
     } catch (err) {
-      console.error('[GEMINI_ERROR] model call threw; returning graceful fallback to guest:', err);
+      console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
       return { message: fallbackMessage(history), toolCalls, error: true };
     }
 
@@ -138,7 +138,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     const wholeIsClean = asValidAction(parseWholeJson(raw)) !== null;
     if (!action || (hasSuspiciousToolSyntax(raw) && !wholeIsClean)) {
       console.error(
-        `[GEMINI_ERROR] extractJson failed on Gemini output / protocol violation (${retriedProtocol ? 'after retry, falling back' : 'retrying once with reminder'}); raw output:`,
+        `[GROQ_ERROR] extractJson failed on model output / protocol violation (${retriedProtocol ? 'after retry, falling back' : 'retrying once with reminder'}); raw output:`,
         raw.slice(0, 500),
       );
       if (!retriedProtocol) {
@@ -154,7 +154,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     }
 
     if (toolIterations >= MAX_TOOL_ITERATIONS) {
-      console.error(`[GEMINI_ERROR] tool-iteration cap (${MAX_TOOL_ITERATIONS}) exceeded in one turn; returning graceful fallback`);
+      console.error(`[GROQ_ERROR] tool-iteration cap (${MAX_TOOL_ITERATIONS}) exceeded in one turn; returning graceful fallback`);
       return { message: fallbackMessage(history), toolCalls, error: true };
     }
     toolIterations++;

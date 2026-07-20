@@ -6,10 +6,12 @@
    import the `episteme-web` GitHub repository. Vercel auto-detects Next.js —
    the default build settings (`npm run build`) are correct as-is.
 2. **Set the environment variable**: in *Project → Settings → Environment
-   Variables*, add `GEMINI_API_KEY` (Production + Preview) — a free-tier key
-   from Google AI Studio (the route calls the `gemini-2.0-flash` model). This
-   is the only required variable; it is read server-side by
-   `src/app/api/chat/route.ts` and must never be prefixed with `NEXT_PUBLIC_`.
+   Variables*, add `GROQ_API_KEY` (Production + Preview) — a free-tier key
+   from the Groq Console (https://console.groq.com; no card, no EU
+   restriction — the route calls the `llama-3.3-70b-versatile` model via
+   Groq's OpenAI-compatible API). This is the only required variable; it is
+   read server-side by `src/app/api/chat/route.ts` and must never be
+   prefixed with `NEXT_PUBLIC_`.
 3. **Deploy**: trigger the first deployment. Every push to the connected
    branch redeploys automatically.
 

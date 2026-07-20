@@ -2,21 +2,20 @@ import { NextResponse } from 'next/server';
 import { fallbackMessage, runTurn, type ChatMessage } from '@/lib/chatEngine';
 
 /**
- * AI receptionist endpoint, backed by Google's Gemini API (free tier).
- * Deliberate architecture: NO native tool-calling — a strict custom JSON
- * protocol instead, because native tool-calling failed for this use case in
- * three ways (announcing a call without invoking it; JSON as prose;
- * hallucinated <function_calls> XML with a fabricated booking code). The
- * model only ever REQUESTS a tool via JSON; the real functions run
- * server-side in src/lib/booking.ts, and confirmation codes exist only there.
+ * AI receptionist endpoint, backed by Groq's OpenAI-compatible API (free
+ * tier, no card, no EU restriction). Deliberate architecture: NO native
+ * tool-calling — a strict custom JSON protocol instead, because native
+ * tool-calling failed for this use case in three ways (announcing a call
+ * without invoking it; JSON as prose; hallucinated <function_calls> XML with
+ * a fabricated booking code). The model only ever REQUESTS a tool via JSON;
+ * the real functions run server-side in src/lib/booking.ts, and confirmation
+ * codes exist only there.
  */
 
-const MODEL = 'gemini-2.0-flash';
-// GEMINI_API_URL is a test seam only (integration tests point it at a local
+const MODEL = 'llama-3.3-70b-versatile';
+// GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
-const GEMINI_URL =
-  process.env.GEMINI_API_URL ??
-  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
 const MAX_TOKENS = 1000;
 
 const MAX_MESSAGES = 40;
@@ -58,21 +57,21 @@ CONVERSATION RULES:
 - Keep messages concise and gracious — a maître d's tone, never chatty.`;
 }
 
-/** Never let the API key leak into logs (it is part of the request URL). */
+/** Never let the API key leak into logs, whatever an error message contains. */
 function redactKey(value: string): string {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   return apiKey ? value.split(apiKey).join('[REDACTED_KEY]') : value;
 }
 
 /** Real model caller; injected into the engine so tests can substitute a mock. */
-async function callGemini(messages: ChatMessage[], systemSuffix: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function callGroq(messages: ChatMessage[], systemSuffix: string): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    console.error('[GEMINI_ERROR] GEMINI_API_KEY is not set in the environment — the receptionist cannot reach Gemini at all');
-    throw new Error('GEMINI_API_KEY is not configured');
+    console.error('[GROQ_ERROR] GROQ_API_KEY is not set in the environment — the receptionist cannot reach Groq at all');
+    throw new Error('GROQ_API_KEY is not configured');
   }
 
-  // Gemini expects the first content to be role "user"; the client history
+  // Keep the conversation opening on a user turn; the client history
   // legitimately starts with the static greeting (assistant).
   const apiMessages: ChatMessage[] =
     messages[0]?.role === 'assistant'
@@ -81,21 +80,25 @@ async function callGemini(messages: ChatMessage[], systemSuffix: string): Promis
 
   let res: Response;
   try {
-    res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    res = await fetch(GROQ_URL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt() + systemSuffix }] },
-        contents: apiMessages.map((m) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        })),
-        generationConfig: { maxOutputTokens: MAX_TOKENS, temperature: 0.7 },
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt() + systemSuffix },
+          ...apiMessages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+        max_tokens: MAX_TOKENS,
+        temperature: 0.7,
       }),
     });
   } catch (err) {
     console.error(
-      '[GEMINI_ERROR] Gemini fetch failed (network/DNS/TLS):',
+      '[GROQ_ERROR] Groq fetch failed (network/DNS/TLS):',
       redactKey(err instanceof Error ? `${err.message} | cause: ${String((err as Error & { cause?: unknown }).cause ?? 'n/a')}` : String(err)),
     );
     throw err;
@@ -103,27 +106,25 @@ async function callGemini(messages: ChatMessage[], systemSuffix: string): Promis
 
   if (!res.ok) {
     const bodyText = await res.text().catch(() => '<unreadable body>');
-    console.error(`[GEMINI_ERROR] Gemini HTTP ${res.status} ${res.statusText}:`, redactKey(bodyText.slice(0, 2000)));
-    throw new Error(`Gemini API error ${res.status}`);
+    console.error(`[GROQ_ERROR] Groq HTTP ${res.status} ${res.statusText}:`, redactKey(bodyText.slice(0, 2000)));
+    throw new Error(`Groq API error ${res.status}`);
   }
 
   const rawBody = await res.text();
-  let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  let data: { choices?: Array<{ message?: { content?: string } }> };
   try {
     data = JSON.parse(rawBody) as typeof data;
   } catch (err) {
-    console.error('[GEMINI_ERROR] Gemini 200 response was not valid JSON:', redactKey(rawBody.slice(0, 2000)), err);
-    throw new Error('Gemini response JSON parse failure');
+    console.error('[GROQ_ERROR] Groq 200 response was not valid JSON:', redactKey(rawBody.slice(0, 2000)), err);
+    throw new Error('Groq response JSON parse failure');
   }
 
-  const text = (data.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part.text ?? '')
-    .join('');
+  const text = data.choices?.[0]?.message?.content ?? '';
   if (!text) {
-    // Empty/missing candidates (e.g. a safety-blocked response): the full body
-    // (incl. promptFeedback/finishReason) is logged, then throwing routes the
-    // turn into the engine's graceful, guest-language {"type":"say"} fallback.
-    console.error('[GEMINI_ERROR] Gemini returned no candidates / empty text; full body:', redactKey(rawBody.slice(0, 2000)));
+    // Empty/missing choices: the full body is logged, then throwing routes
+    // the turn into the engine's graceful, guest-language {"type":"say"}
+    // fallback.
+    console.error('[GROQ_ERROR] Groq returned no choices / empty content; full body:', redactKey(rawBody.slice(0, 2000)));
     throw new Error('empty model response');
   }
   return text;
@@ -162,11 +163,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await runTurn(history, callGemini);
+    const result = await runTurn(history, callGroq);
     return NextResponse.json(result);
   } catch (err) {
     // Absolute last resort — runTurn already degrades gracefully internally.
-    console.error('[GEMINI_ERROR] unhandled error escaped the chat engine:', err);
+    console.error('[GROQ_ERROR] unhandled error escaped the chat engine:', err);
     return NextResponse.json({
       message: fallbackMessage(history),
       toolCalls: [],
