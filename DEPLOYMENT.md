@@ -11,7 +11,9 @@
    restriction — the route calls the `llama-3.3-70b-versatile` model via
    Groq's OpenAI-compatible API). This is the only required variable; it is
    read server-side by `src/app/api/chat/route.ts` and must never be
-   prefixed with `NEXT_PUBLIC_`.
+   prefixed with `NEXT_PUBLIC_`. If you use the Retell AI voice agent, also
+   add `RETELL_FUNCTION_SECRET` (any long random string; see
+   `RETELL_SETUP.md`).
 3. **Deploy**: trigger the first deployment. Every push to the connected
    branch redeploys automatically.
 
