@@ -2,17 +2,21 @@ import { NextResponse } from 'next/server';
 import { fallbackMessage, runTurn, type ChatMessage } from '@/lib/chatEngine';
 
 /**
- * AI receptionist endpoint. Deliberate architecture: NO native tool-calling
- * (tools param / tool_use blocks) — a strict custom JSON protocol instead,
- * because native tool-calling failed for this use case in three ways
- * (announcing a call without invoking it; JSON as prose; hallucinated
- * <function_calls> XML with a fabricated booking code). The model only ever
- * REQUESTS a tool via JSON; the real functions run server-side in
- * src/lib/booking.ts, and confirmation codes exist only there.
+ * AI receptionist endpoint, backed by Google's Gemini API (free tier).
+ * Deliberate architecture: NO native tool-calling — a strict custom JSON
+ * protocol instead, because native tool-calling failed for this use case in
+ * three ways (announcing a call without invoking it; JSON as prose;
+ * hallucinated <function_calls> XML with a fabricated booking code). The
+ * model only ever REQUESTS a tool via JSON; the real functions run
+ * server-side in src/lib/booking.ts, and confirmation codes exist only there.
  */
 
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-sonnet-5';
+const MODEL = 'gemini-2.0-flash';
+// GEMINI_API_URL is a test seam only (integration tests point it at a local
+// mock); in production it is unset and the real endpoint below is used.
+const GEMINI_URL =
+  process.env.GEMINI_API_URL ??
+  `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const MAX_TOKENS = 1000;
 
 const MAX_MESSAGES = 40;
@@ -37,7 +41,7 @@ RESTAURANT FACTS (answer accurately if asked):
 - Today is ${weekday}, ${date} (Europe/Budapest). Convert natural-language dates ("tomorrow", "next Saturday") to YYYY-MM-DD accordingly.
 
 RESPONSE PROTOCOL — ABSOLUTE RULES:
-Respond with EXACTLY ONE JSON object and NOTHING else. No prose outside JSON, no markdown code fences, no XML tags. The only allowed shapes are:
+Respond with EXACTLY ONE JSON object and NOTHING else. Output the raw JSON object only: no markdown code fences, no preamble, no explanation, no trailing text, no XML tags. The only allowed shapes are:
 {"type":"say","message":"..."}
 {"type":"tool","name":"check_availability","input":{"date":"YYYY-MM-DD","time":"HH:MM","guests":N}}
 {"type":"tool","name":"book_table","input":{"name":"...","phone":"...","date":"YYYY-MM-DD","time":"HH:MM","guests":N}}
@@ -55,44 +59,45 @@ CONVERSATION RULES:
 }
 
 /** Real model caller; injected into the engine so tests can substitute a mock. */
-async function callAnthropic(messages: ChatMessage[], systemSuffix: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+async function callGemini(messages: ChatMessage[], systemSuffix: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY is not configured');
+    throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  // The Messages API requires the first message to be role "user"; the client
-  // history legitimately starts with the static greeting (assistant).
+  // Gemini expects the first content to be role "user"; the client history
+  // legitimately starts with the static greeting (assistant).
   const apiMessages: ChatMessage[] =
     messages[0]?.role === 'assistant'
       ? [{ role: 'user', content: '[RENDSZER] A vendég megnyitotta a foglalási felületet.' }, ...messages]
       : messages;
 
-  const res = await fetch(ANTHROPIC_URL, {
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: systemPrompt() + systemSuffix,
-      messages: apiMessages,
+      systemInstruction: { parts: [{ text: systemPrompt() + systemSuffix }] },
+      contents: apiMessages.map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      })),
+      generationConfig: { maxOutputTokens: MAX_TOKENS, temperature: 0.7 },
     }),
   });
 
   if (!res.ok) {
-    throw new Error(`Anthropic API error ${res.status}`);
+    throw new Error(`Gemini API error ${res.status}`);
   }
 
-  const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-  const text = (data.content ?? [])
-    .filter((block) => block.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text)
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  const text = (data.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => part.text ?? '')
     .join('');
   if (!text) {
+    // Empty/missing candidates (e.g. a blocked response): throwing routes the
+    // turn into the engine's graceful, guest-language {"type":"say"} fallback.
     throw new Error('empty model response');
   }
   return text;
@@ -131,7 +136,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await runTurn(history, callAnthropic);
+    const result = await runTurn(history, callGemini);
     return NextResponse.json(result);
   } catch {
     // Absolute last resort — runTurn already degrades gracefully internally.
