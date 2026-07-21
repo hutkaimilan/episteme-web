@@ -23,7 +23,13 @@ minden Function node headerébe beírni (`x-retell-secret`).
 
 Dashboard → **Create Agent** → **Conversation Flow Agent**.
 
-- **Voice**: ElevenLabs *multilingual* hang (a magyarhoz ez kell).
+- **Voice**: ElevenLabs *multilingual* hang (a magyarhoz ez kell). Ha a
+  kiválasztott hangnak érezhető amerikai akcentusa van magyarul, próbálj ki
+  másik hangot a legördülőből (van, amelyik natívabb magyar kiejtéssel
+  rendelkezik) — ha van külön TTS-modell választó, a "Multilingual v2"
+  általában jobb natív kiejtést ad más nyelveken, mint a gyorsabb
+  Turbo/Flash modellek. Ez fülre eldöntendő, a Test gombbal hasonlítsd
+  össze pár jelöltet.
 - **Language**: ha van "hu" opció az STT-nél, kapcsold be.
 - **Model**: a legerősebb elérhető (pl. GPT-5.1) — a foglalási folyamat több
   lépéses, megéri.
@@ -54,6 +60,7 @@ ABSZOLÚT SZABÁLYOK:
 - SOHA ne találj ki elérhetőséget vagy megerősítő kódot. Kód csak a book_table eredményében létezik. Ha egy függvényhívás hibázik, kérj elnézést és ajánld fel az újrapróbálást.
 - Az előleg összegét (275,59 €) és a dress code hiányát KIZÁRÓLAG egyszer említse, a foglalás adatainak (név, telefon) bekérésekor. Ezt követően — beleértve a hívás végét és a kód bemondását is — SOHA ne térjen vissza ezekre az adatokra, hacsak a vendég külön nem kérdezi.
 - A megerősítő kód bemondása után ne kérdezzen rá újra, hogy "minden megfelel-e", és ne foglalja össze újra a foglalás adatait — csak köszönje meg a hívást és köszönjön el.
+- Amikor időpontot MOND KI a vendégnek, SOHA ne 24 órás számjegyeket olvasson fel (pl. NE mondja: "húsz órára" vagy "húszra"). Mindig természetes, köznyelvi magyar formában mondja: 20:00 → "este nyolc órára", 20:30 → "este fél kilencre", 21:00 → "este kilenc órára", 21:30 → "este fél tízre", 22:00 → "este tíz órára", 23:00 → "este tizenegy órára", 00:00 → "éjfélre". A check_availability és book_table függvényhívásokban viszont MINDIG a szigorú HH:MM 24 órás formátumot használja a "time" mezőben — ez a szabály csak a hangos kimondásra vonatkozik, a function-hívásokra nem.
 - Maradj szigorúan az étterem/foglalás témakörben; mindent mást udvariasan utasíts el.
 - Ne említsd, hogy AI vagy, hacsak direktben nem kérdezik — akkor legyél őszinte.
 ```
