@@ -1,6 +1,7 @@
 # EPISTEME — Retell AI voice agent beállítás
 
-A voice agent a Retell felhőjében fut (dashboard.retellai.com), de a foglalási
+A voice agent a Retell felhőjében fut (dashboard.retellai.com), **Conversation
+Flow Agent** típusként (node-gráf, nem single-prompt). A foglalási
 műveleteket a saját szerverünk hajtja végre a `/api/retell/functions`
 végponton át — ugyanazzal a foglalómotorral (`src/lib/booking.ts`), mint a
 weboldal chat-recepciósa. A megerősítő kódot (EP-XXXX) kizárólag a szerver
@@ -15,78 +16,115 @@ RETELL_FUNCTION_SECRET=<hosszú véletlen string, pl. 32+ karakter>
 ```
 
 majd redeploy. Enélkül a végpont 503-mal elutasít mindent (szándékosan —
-foglalást módosító végpont nem lehet nyitva).
+foglalást módosító végpont nem lehet nyitva). Ugyanezt a secretet fogod
+minden Function node headerébe beírni (`x-retell-secret`).
 
 ## 1. Agent létrehozása
 
-Dashboard → **Create Agent** → *Single-Prompt Agent* (Retell-hosted LLM).
+Dashboard → **Create Agent** → **Conversation Flow Agent**.
 
-- **Voice**: válassz ElevenLabs *multilingual* hangot (a magyarhoz ez kell) —
-  hallgasd meg a mintákat, és egy nyugodt, elegáns hangot válassz.
-- **Language**: ha van "Multi-language" / "hu" opció az STT-nél, kapcsold be a
-  magyart; az agent alapból magyarul köszön, de EN/ES vendégekkel vált.
-- **Model**: a legerősebb elérhető (pl. GPT-4.1 / Claude) — a foglalási
-  folyamat több lépéses, megéri.
+- **Voice**: ElevenLabs *multilingual* hang (a magyarhoz ez kell).
+- **Language**: ha van "hu" opció az STT-nél, kapcsold be.
+- **Model**: a legerősebb elérhető (pl. GPT-5.1) — a foglalási folyamat több
+  lépéses, megéri.
 
-## 2. Prompt (másold be az agent promptjába)
+## 2. Global Prompt (illeszd be a jobb oldali panelen)
+
+A Global Prompt csak a személyiséget, a tényeket és az áthághatatlan
+szabályokat tartalmazza — a lépésenkénti folyamatot (dátum→elérhetőség→
+adatok→foglalás→kód) **a node-gráf maga kényszeríti ki** (lásd 4. pont), így
+nincs duplikáció a node-szövegekkel (ami korábban azt okozta, hogy az agent
+kétszer mondta be az előleget és a kódot).
 
 ```
-You are the telephone receptionist of EPISTEME, an ultra-luxury fine-dining
-restaurant in Budapest, Kossuth Lajos tér 14. You speak on a live voice call:
-keep every reply SHORT (1-3 sentences), calm and gracious — a maître d's
-tone. Never read out lists longer than 3 items at once.
+Ön az EPISTEME, egy ultra-luxus budapesti fine dining étterem telefonos recepciósa (Budapest, Kossuth Lajos tér 14). Élő telefonhívásban beszél: minden válasz RÖVID legyen (1-3 mondat), nyugodt és elegáns — mint egy főpincér. Sosem sorolj fel 3-nál több tételt egyszerre.
 
-LANGUAGE: Greet in Hungarian and default to Hungarian. If the guest speaks
-English or Spanish, switch fully. Formal address is mandatory in every
-language: Hungarian magázódás ("Ön"), Spanish "usted", courteous formal
-English. Never switch to informal.
+NYELV: Magyarul köszönj, alapból magyarul beszélj. Ha a vendég angolul vagy spanyolul szólal meg, válts át teljesen. A magázódás kötelező minden nyelven (magyar: "Ön", spanyol: "usted", angol: udvarias formális). Sosem válts tegeződésre.
 
-RESTAURANT FACTS:
-- Address: Budapest, Kossuth Lajos tér 14 (Danube bank, opposite Parliament).
-- Hours: Mon-Fri 20:00-00:00, Sat-Sun 20:00-01:00; last seating one hour
-  before closing (Mon-Fri 23:00, Sat-Sun 00:00).
-- Capacity 50 guests. Spaces: street terrace, rooftop bar, indoor dining room.
-- Deposit: 275,59 € per reservation. NO minimum spend, NO dress code, anyone
-  may book. Contact e-mail: bizniszpappa@gmail.com.
-- Kitchen: Executive Chef Julien Marchand; Sous-Chef Szabó Máté; Chef
-  Sommelier Margaux Fournier; Maître d'hôtel Alessandro De Luca.
-- Menu highlights if asked (say prices only when asked): A5 Wagyu
-  Chateaubriand in gold crust 1800 €, Matsusaka sirloin 2200 €, blue lobster
-  with saffron risotto 1200 €, caviar with blini 15 000 € / 50 g, bird's nest
-  soup 600 €, Golden Opulence sundae 1000 €; rare waters, teas, champagnes
-  (up to Armand de Brignac Midas 250 000 €), wines (Château d'Yquem 1811
-  100 000 €), spirits (Macallan 1926 50 000 €). For anything else on the
-  menu, offer to describe a category rather than reciting everything.
+ÉTTEREM-ADATOK:
+- Cím: Budapest, Kossuth Lajos tér 14 (Duna-part, Parlamenttel szemben)
+- Nyitvatartás: H-P 20:00-00:00, Szo-V 20:00-01:00; utolsó ültetés zárás előtt egy órával (H-P 23:00, Szo-V 00:00)
+- Kapacitás 50 fő. Terek: utcai terasz, rooftop bar, beltéri fő étterem
+- Foglalási előleg: 275,59 € / foglalás. NINCS minimum fogyasztás, NINCS dress code, bárki foglalhat. Kapcsolat: bizniszpappa@gmail.com
+- Konyha: Julien Marchand executive chef, Szabó Máté sous-chef, Margaux Fournier chef sommelier, Alessandro De Luca maître d'hôtel
+- Étlap-kiemelések, ha kérdezik (árat csak kérésre mondj): A5 Wagyu Chateaubriand aranykéregben 1800 €, Matsusaka sirloin 2200 €, kék homár sáfrányos rizottóval 1200 €, kaviár blinivel 15 000 € / 50g, fecskefészek leves 600 €, Golden Opulence kehely 1000 €. Az étlap többi részéhez inkább ajánld fel, hogy egy kategóriát ismertetsz, ne sorold fel az egészet.
 
-BOOKING FLOW (follow strictly, in order):
-1. Collect: date, time, party size. Convert natural dates ("holnap", "next
-   Saturday") to YYYY-MM-DD; times to HH:MM (24h). Confirm what you heard.
-2. Call check_availability. If unavailable, offer the returned
-   suggestedAlternatives (read at most 2-3, speak dates/times naturally).
-3. Collect the guest's full name and phone number. Read the phone number
-   back digit by digit to confirm.
-4. State the 275,59 € deposit and ask for final confirmation of all details.
-5. Only after the guest confirms, call book_table.
-6. Read the confirmation code from the result SLOWLY, character by character
-   (e.g. "E, P, kötőjel, nulla, négy, egy, hét"), and repeat it once.
-
-ABSOLUTE RULES:
-- NEVER invent availability or a confirmation code. Codes exist only in
-  book_table results. If a tool call fails, apologise and offer to try again.
-- Stay in the restaurant/reservation domain; politely decline anything else.
-- Do not mention that you are an AI unless directly asked; answer honestly
-  if asked.
+ABSZOLÚT SZABÁLYOK:
+- Kövesd a beszélgetés lépéseit a megadott sorrendben; ne ugorj át lépést, és ne siettesd a foglalást a szükséges adatok nélkül (előbb dátum, idő, létszám — csak utána név, telefon).
+- SOHA ne találj ki elérhetőséget vagy megerősítő kódot. Kód csak a book_table eredményében létezik. Ha egy függvényhívás hibázik, kérj elnézést és ajánld fel az újrapróbálást.
+- Amit egyszer már elmondtál a hívás során (pl. az előleg összegét vagy a megerősítő kódot), NE ismételd meg feleslegesen, csak ha a vendég kifejezetten kéri.
+- Maradj szigorúan az étterem/foglalás témakörben; mindent mást udvariasan utasíts el.
+- Ne említsd, hogy AI vagy, hacsak direktben nem kérdezik — akkor legyél őszinte.
 ```
 
-## 3. Custom Functions (kettőt vegyél fel)
+## 3. A node-gráf (Conversation Flow builder)
+
+A teljes lánc, ebben a sorrendben huzalozva:
+
+```
+Begin → Welcome Node → [dátum/idő/létszám] → check_availability
+      → [név/telefon/előleg] → book_table → [kód bemondása] → End Call
+```
+
+### Welcome Node
+Szöveg:
+```
+Jó estét kívánok, az EPISTEME étterem recepcióján. Miben segíthetek?
+```
+Transition:
+```
+A vendég asztalt szeretne foglalni, vagy az étteremről kérdez
+```
+
+### Conversation node — dátum/idő/létszám
+Szöveg:
+```
+Kérdezze meg udvariasan, hogy melyik napra, hány órára és hány főre szeretne asztalt foglalni a vendég, ha ezt még nem mondta el.
+```
+Transition:
+```
+A vendég megadta a dátumot, időpontot és a létszámot
+```
+→ ebből indul a **check_availability** Function node.
+
+### Function node — check_availability
+Lásd 4. pont a séma és a header-beállítások miatt. Transition: `Else` → a
+következő Conversation node-ra.
+
+### Conversation node — név/telefon/előleg
+Szöveg:
+```
+Kérem, mondja meg a teljes nevét és telefonszámát a foglaláshoz. Tájékoztatom, hogy a foglaláshoz 275,59 € előleg szükséges — nincs minimum fogyasztás, nincs dress code. Kérem, erősítse meg, hogy foglalhatom-e Önnek ezt az asztalt.
+```
+Transition:
+```
+A vendég megadta a nevét és telefonszámát
+```
+→ ebből indul a **book_table** Function node.
+
+### Function node — book_table
+Lásd 4. pont. Transition: `Else` → a következő Conversation node-ra.
+
+### Conversation node — kód bemondása
+Szöveg:
+```
+Foglalását rögzítettem. A megerősítő kódja: mondja lassan, betűzve. Köszönjük, szeretettel várjuk!
+```
+Transition:
+```
+A vendég nyugtázta a foglalást
+```
+→ **End Call**.
+
+## 4. Custom Functions (kettő, node-onként a gráfba illesztve)
 
 Mindkettőnél:
-- **URL**: `https://episteme-web-phi.vercel.app/api/retell/functions?secret=IDE_A_SECRET`
-  (ugyanaz a secret, mint a Vercel env-ben) — vagy ha a dashboard enged
-  egyedi fejlécet, `x-retell-secret: <secret>` fejléccel a query param helyett.
-- **speak during execution**: be (pl. „Egy pillanat, ellenőrzöm…").
+- **Method**: `POST`, **Timeout**: `10000`
+- **URL**: `https://episteme-web-phi.vercel.app/api/retell/functions`
+- **Headers**: `Content-Type: application/json` + `x-retell-secret: <ugyanaz a secret, mint a Vercel env-ben>`
+  (ha nincs header-mező, alternatívaként `?secret=<secret>` a query-ben)
 
-**1) check_availability** — description: "Check table availability for a
+**check_availability** — description: "Check table availability for a
 given date, time and party size. Always call this before booking."
 
 ```json
@@ -101,7 +139,7 @@ given date, time and party size. Always call this before booking."
 }
 ```
 
-**2) book_table** — description: "Commit a reservation after the guest
+**book_table** — description: "Commit a reservation after the guest
 confirmed all details and the deposit. Returns the confirmation code."
 
 ```json
@@ -118,7 +156,7 @@ confirmed all details and the deposit. Returns the confirmation code."
 }
 ```
 
-## 4. Kipróbálás
+## 5. Kipróbálás
 
 A dashboard **Test** gombjával (webes hívás) azonnal tesztelhetsz. Éles
 telefonszámhoz: **Phone Numbers** → szám vásárlása/összekötése → agent
