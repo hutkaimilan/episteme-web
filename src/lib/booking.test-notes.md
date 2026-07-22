@@ -6,17 +6,27 @@ so per the Phase 6 brief these are the documented edge cases the logic in
 exercised manually with a standalone script during development; if a runner is
 added later, convert each bullet into a unit test.
 
+## Capacity model (per-evening shared pool)
+
+One seating per evening, NO table turnover: all reservations for a given
+DATE draw from the same shared 50-seat pool regardless of start time.
+Booking 30 guests for Thursday 20:00 must leave exactly 20 seats for ANY
+other time that same Thursday evening.
+
 ## `checkAvailability(date, time, guests)`
 
-- **Fully booked slot** → `{ available: false, reason: 'slot_fully_booked', suggestedAlternatives: [...] }`
-  with 2–3 plausible alternatives (same day other times first, then next day
-  same time), never an empty crash.
+- **Fully booked evening** → `{ available: false, reason: 'evening_fully_booked', suggestedAlternatives: [...] }`.
+  Alternatives are OTHER days at the requested time only — never a different
+  time on the same evening (same pool, that would be misleading). A smaller
+  same-evening party is signalled via `remainingCapacity` in the result.
 - **Outside opening hours** → rejected with `outside_opening_hours`; seatings
   are Mon–Fri 20:00–23:00 and Sat–Sun 20:00–00:00 (last seating one hour
   before the 00:00 / 01:00 close). A weekday `00:00` request must be rejected;
-  a weekend `00:00` request must be accepted.
-- **Party size exceeding remaining capacity** → `insufficient_capacity` with
-  the true remaining count; `guests > 50` → `party_too_large` regardless of slot.
+  a weekend `00:00` request must be accepted. Time validity is still checked
+  per requested time even though capacity is per evening.
+- **Party size exceeding the evening's remaining capacity** →
+  `insufficient_capacity` with the true remaining count; `guests > 50` →
+  `party_too_large` regardless of date.
 - **Past date** → `past_date`; malformed date/time strings → `invalid_date` /
   `invalid_time`; `guests < 1` or non-integer → `invalid_guests`.
 
@@ -26,10 +36,11 @@ added later, convert each bullet into a unit test.
   (`invalid_name` for names shorter than 2 chars, `invalid_phone` for fewer
   than 6 digits).
 - **Availability re-validated at commit time** — a stale prior check must not
-  allow overbooking.
-- **Successful booking reduces subsequent availability**: booking N guests
-  into a slot must decrease `remainingCapacity` for the same slot by exactly N
-  on the next check, within the same server session.
+  allow overbooking of the evening's shared pool.
+- **Successful booking reduces subsequent availability for the WHOLE
+  evening**: booking N guests must decrease `remainingCapacity` for the same
+  DATE by exactly N on the next check at ANY time of that evening, within the
+  same server session.
 - **Confirmation code**: always server-generated, format `EP-XXXX`
   (zero-padded 4 digits), unique per session; the model can only relay it.
 
@@ -50,7 +61,8 @@ added later, convert each bullet into a unit test.
 
 ## Store seam
 
-Availability = deterministic pseudo-load (stable hash per `date+time`) plus
-in-memory session bookings. Swap `baseLoad` / `slotBookings` / `usedCodes` in
-`booking.ts` for real persistence to go live; the exported function signatures
-are the stable contract.
+Availability = deterministic pseudo-load (stable hash per `date` — one pool
+per evening) plus in-memory session bookings summed per date. Swap
+`baseLoad` / `dateBookings` / `usedCodes` in `booking.ts` for real
+persistence to go live; the exported function signatures are the stable
+contract.

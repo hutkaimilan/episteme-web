@@ -1,13 +1,22 @@
 /**
  * Server-side booking engine.
  *
+ * CAPACITY MODEL — one seating per evening, NO table turnover: EPISTEME
+ * serves a single long multi-course dinner experience, so a table booked at
+ * 20:00 stays occupied for the entire evening. Every reservation for a given
+ * DATE therefore draws from the same shared 50-seat pool for that whole
+ * evening, regardless of the requested start time — remaining capacity is
+ * tracked PER DATE, never per time slot. (A different start time on the same
+ * evening never yields extra capacity.)
+ *
  * SEAM FOR A REAL DATABASE: the availability data below is a deterministic
- * pseudo-load (stable hash per slot) combined with an in-memory record of
+ * pseudo-load (stable hash per date) combined with an in-memory record of
  * bookings made during this server session, so repeated checks and bookings
- * stay consistent (a slot booked to near-capacity correctly shows reduced or
- * no availability afterwards). To go live, replace `baseLoad`, `slotBookings`
- * and `usedCodes` with real persistence (SQL/KV) behind the same two exported
- * functions — their signatures are the stable contract.
+ * stay consistent (an evening booked to near-capacity correctly shows
+ * reduced or no availability afterwards, at any time of that evening). To go
+ * live, replace `baseLoad`, `dateBookings` and `usedCodes` with real
+ * persistence (SQL/KV) behind the same two exported functions — their
+ * signatures are the stable contract.
  */
 
 export type AvailabilityResult = {
@@ -25,8 +34,8 @@ export type BookingResult = {
 
 const CAPACITY = 50;
 
-/** Booked guests per slot in this server session, keyed by `${date}T${time}`. */
-const slotBookings = new Map<string, number>();
+/** Booked guests per DATE (the whole evening's shared pool) in this server session. */
+const dateBookings = new Map<string, number>();
 /** Confirmation codes issued in this session (collision guard). */
 const usedCodes = new Set<string>();
 
@@ -43,18 +52,14 @@ function hash(str: string): number {
   return h;
 }
 
-/** Plausible pre-existing load for a slot: 0–50 guests, stable per date+time. */
-function baseLoad(slotKey: string): number {
-  return Math.min(CAPACITY, hash(slotKey) % 56);
+/** Plausible pre-existing load for an EVENING: 0–50 guests, stable per date. */
+function baseLoad(date: string): number {
+  return Math.min(CAPACITY, hash(date) % 56);
 }
 
-function slotKey(date: string, time: string): string {
-  return `${date}T${time}`;
-}
-
-function remainingFor(date: string, time: string): number {
-  const key = slotKey(date, time);
-  return Math.max(0, CAPACITY - baseLoad(key) - (slotBookings.get(key) ?? 0));
+/** Seats still free for the given evening — shared across every start time of that date. */
+function remainingFor(date: string): number {
+  return Math.max(0, CAPACITY - baseLoad(date) - (dateBookings.get(date) ?? 0));
 }
 
 function isWeekend(date: string): boolean {
@@ -93,31 +98,29 @@ function validateSlot(date: string, time: string): string | null {
   return null;
 }
 
-/** Candidate seating times for a date, on the half hour. */
-function seatingTimes(date: string): string[] {
-  const times = ['20:00', '20:30', '21:00', '21:30', '22:00', '22:30', '23:00'];
-  return isWeekend(date) ? [...times, '23:30', '00:00'] : times;
-}
-
 function nextDay(date: string): string {
   const d = new Date(`${date}T12:00:00`);
   d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * Alternatives when an evening cannot seat the party. Different times on the
+ * SAME evening share the same pool, so they are deliberately NEVER suggested
+ * — only other evenings (at the requested time) that can actually seat the
+ * full party. A smaller same-evening party is signalled separately via
+ * `remainingCapacity` in the result.
+ */
 function suggestAlternatives(date: string, time: string, guests: number): Array<{ date: string; time: string }> {
   const suggestions: Array<{ date: string; time: string }> = [];
-  for (const t of seatingTimes(date)) {
-    if (t !== time && remainingFor(date, t) >= guests) {
-      suggestions.push({ date, time: t });
-      if (suggestions.length === 2) break;
+  let candidate = date;
+  for (let i = 0; i < 14 && suggestions.length < 3; i++) {
+    candidate = nextDay(candidate);
+    if (validateSlot(candidate, time) === null && remainingFor(candidate) >= guests) {
+      suggestions.push({ date: candidate, time });
     }
   }
-  const tomorrow = nextDay(date);
-  if (validateSlot(tomorrow, time) === null && remainingFor(tomorrow, time) >= guests) {
-    suggestions.push({ date: tomorrow, time });
-  }
-  return suggestions.slice(0, 3);
+  return suggestions;
 }
 
 export function checkAvailability(date: string, time: string, guests: number): AvailabilityResult {
@@ -125,18 +128,21 @@ export function checkAvailability(date: string, time: string, guests: number): A
     return { available: false, reason: 'invalid_guests: must be a positive integer' };
   }
   if (guests > CAPACITY) {
-    return { available: false, reason: `party_too_large: total capacity is ${CAPACITY} guests` };
+    return { available: false, reason: `party_too_large: total capacity is ${CAPACITY} guests per evening` };
   }
   const slotError = validateSlot(date, time);
   if (slotError) {
     return { available: false, reason: slotError };
   }
-  const remaining = remainingFor(date, time);
+  const remaining = remainingFor(date);
   if (guests > remaining) {
     return {
       available: false,
       remainingCapacity: remaining,
-      reason: remaining === 0 ? 'slot_fully_booked' : `insufficient_capacity: only ${remaining} seats left in this slot`,
+      reason:
+        remaining === 0
+          ? 'evening_fully_booked: this evening is fully booked (single seating, shared 50-seat pool — no time on this date has capacity)'
+          : `insufficient_capacity: only ${remaining} seats remain for this ENTIRE evening (single seating, no table turnover) — a party of up to ${remaining} could still be seated this evening`,
       suggestedAlternatives: suggestAlternatives(date, time, guests),
     };
   }
@@ -169,14 +175,14 @@ export function bookTable(
     return { success: false, reason: 'invalid_phone: a valid phone number is required' };
   }
 
-  // Re-validate availability at commit time — a prior check may be stale.
+  // Re-validate against the same per-evening shared pool at commit time — a
+  // prior check may be stale.
   const availability = checkAvailability(date, time, guests);
   if (!availability.available) {
-    return { success: false, reason: availability.reason ?? 'slot_unavailable' };
+    return { success: false, reason: availability.reason ?? 'evening_unavailable' };
   }
 
-  const key = slotKey(date, time);
-  slotBookings.set(key, (slotBookings.get(key) ?? 0) + guests);
+  dateBookings.set(date, (dateBookings.get(date) ?? 0) + guests);
 
   // NOTE: the guest-facing e-mail is sent by the CLIENT via @emailjs/browser
   // (a browser-only SDK) after it receives this successful result through the
