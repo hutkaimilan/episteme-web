@@ -179,7 +179,7 @@ const hu: Dictionary = {
     csapat: { eyebrow: 'Konyha & Csapat', title: 'A *precizitás* művészei.' },
     etlap: { eyebrow: 'Az étlap', title: 'Egy este. Ezer *finomság*.' },
     borkultura: { eyebrow: 'Borkultúra', title: 'A pohár, ami *elmesél* egy tájat.' },
-    foglalas: { eyebrow: 'Foglalás', title: 'Mondja el, mikor. Mi *elkészítjük* a helyet.' },
+    foglalas: { eyebrow: 'Foglalás', title: 'Mondja el, mikor. Mi *előkészítjük* a helyet.' },
     kapcsolat: { eyebrow: 'Kapcsolat', title: 'Várjuk *Önt* a Duna partján.' },
   },
   gallery: {
