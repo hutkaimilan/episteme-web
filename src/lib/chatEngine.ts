@@ -137,6 +137,32 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     // retry once with a strict reminder, then fall back gracefully.
     const wholeIsClean = asValidAction(parseWholeJson(raw)) !== null;
     if (!action || (hasSuspiciousToolSyntax(raw) && !wholeIsClean)) {
+      // Auto-wrap recovery: if the model expressed a legitimate conversational
+      // reply as bare prose (the observed failure: a correct "not enough
+      // capacity" answer sent without the JSON wrapper), recover it as a
+      // {"type":"say"} instead of discarding it. STRICTLY limited to text
+      // with zero signs of fabricated structured data — no braces at all, no
+      // fake tool-call syntax, no tool names, and no EP-code-like pattern
+      // (a code may only ever reach the guest via a real book_table result
+      // relayed in valid JSON). Anything tool-shaped keeps the existing
+      // strict retry-then-fallback path untouched.
+      const trimmed = raw.trim();
+      const autoWrapEligible =
+        !action &&
+        trimmed.length > 0 &&
+        !trimmed.includes('{') &&
+        !trimmed.includes('}') &&
+        !hasSuspiciousToolSyntax(raw) &&
+        !/EP[\s_-]*\d/i.test(trimmed) &&
+        !/check_availability|book_table/i.test(trimmed);
+      if (autoWrapEligible) {
+        console.error(
+          '[GROQ_ERROR] Recovered plain-text say response via auto-wrap; raw output:',
+          trimmed.slice(0, 300),
+        );
+        return { message: trimmed, toolCalls };
+      }
+
       console.error(
         `[GROQ_ERROR] extractJson failed on model output / protocol violation (${retriedProtocol ? 'after retry, falling back' : 'retrying once with reminder'}); raw output:`,
         raw.slice(0, 500),
