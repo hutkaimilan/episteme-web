@@ -31,6 +31,24 @@ const MAX_MODEL_CALLS = 8;
 const PROTOCOL_REMINDER =
   '\n\nSTRICT REMINDER: your previous reply violated the response protocol. You MUST respond with EXACTLY ONE JSON object of shape {"type":"say","message":"..."} or {"type":"tool","name":"...","input":{...}} — no prose, no markdown fences, no XML, no invented tool results.';
 
+const STALL_REMINDER =
+  '\n\nSTRICT REMINDER: You have enough information. You must now emit a check_availability tool call ({"type":"tool","name":"check_availability",...}), not another message. Never announce an action in prose — perform it by emitting the tool-call JSON.';
+
+/**
+ * Distinguishes a stalled action ANNOUNCEMENT ("let me check…", "máris
+ * ellenőrzöm…") from a message that DELIVERS information/results. Announced
+ * intent needs the force-tool retry path; delivered information may be
+ * returned to the guest (or auto-wrapped when it arrived as bare prose).
+ */
+export function isActionAnnouncement(text: string): boolean {
+  return (
+    /ellenőrz|ellenőriz|megnézem|megnézzük|utánanéz|lekérdez/i.test(text) ||
+    /egy pillanat|pillanat türelmét/i.test(text) ||
+    /let me check|i['’]ll check|i will check|checking (the |our )?availab|allow me to (check|verify)|look(ing)? (it |that )?up|one moment/i.test(text) ||
+    /voy a (comprobar|verificar)|perm[ií]tame (comprobar|verificar)|un momento|d[ée]jeme (comprobar|verificar)/i.test(text)
+  );
+}
+
 /** Very small language heuristic for the graceful fallback message only. */
 export function detectLang(text: string): 'hu' | 'en' | 'es' {
   const t = text.toLowerCase();
@@ -115,12 +133,18 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   let toolIterations = 0;
   let modelCalls = 0;
   let retriedProtocol = false;
+  let stallRetried = false;
+  let forceStallReminder = false;
 
   while (modelCalls < MAX_MODEL_CALLS) {
     let raw: string;
     try {
-      raw = await callModel(messages, retriedProtocol ? PROTOCOL_REMINDER : '');
+      raw = await callModel(
+        messages,
+        forceStallReminder ? STALL_REMINDER : retriedProtocol ? PROTOCOL_REMINDER : '',
+      );
       modelCalls++;
+      forceStallReminder = false;
     } catch (err) {
       console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
       return { message: fallbackMessage(history), toolCalls, error: true };
@@ -147,7 +171,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       // relayed in valid JSON). Anything tool-shaped keeps the existing
       // strict retry-then-fallback path untouched.
       const trimmed = raw.trim();
-      const autoWrapEligible =
+      const cleanProse =
         !action &&
         trimmed.length > 0 &&
         !trimmed.includes('{') &&
@@ -155,7 +179,19 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         !hasSuspiciousToolSyntax(raw) &&
         !/EP[\s_-]*\d/i.test(trimmed) &&
         !/check_availability|book_table/i.test(trimmed);
-      if (autoWrapEligible) {
+      if (cleanProse) {
+        // Announced intent ("let me check…") must NOT be auto-wrapped — that
+        // would return the stall to the guest. Route it to the force-tool
+        // retry instead; only genuinely informational prose gets wrapped.
+        if (isActionAnnouncement(trimmed) && toolIterations === 0 && !stallRetried) {
+          stallRetried = true;
+          forceStallReminder = true;
+          console.error(
+            '[GROQ_ERROR] Detected stalled availability-check announcement without tool call, forcing tool invocation retry; raw output:',
+            trimmed.slice(0, 200),
+          );
+          continue;
+        }
         console.error(
           '[GROQ_ERROR] Recovered plain-text say response via auto-wrap; raw output:',
           trimmed.slice(0, 300),
@@ -176,6 +212,21 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     retriedProtocol = false;
 
     if (action.type === 'say') {
+      // Structural stall net: a valid say that merely ANNOUNCES checking
+      // ("máris ellenőrzöm…") before any tool has run this turn would leave
+      // the guest hanging — re-prompt once with an explicit order to emit
+      // the tool call. After one forced retry the say is returned as-is to
+      // avoid loops. Post-tool says are never touched (past-tense
+      // "ellenőriztem" delivering results is legitimate there).
+      if (toolIterations === 0 && !stallRetried && isActionAnnouncement(action.message)) {
+        stallRetried = true;
+        forceStallReminder = true;
+        console.error(
+          '[GROQ_ERROR] Detected stalled availability-check announcement without tool call, forcing tool invocation retry; message:',
+          action.message.slice(0, 200),
+        );
+        continue;
+      }
       return { message: action.message, toolCalls };
     }
 
