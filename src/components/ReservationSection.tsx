@@ -15,10 +15,20 @@ const EMAILJS_PUBLIC_KEY = 'bI2mj0KaJZMJnD6Lq';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
+type ToolName = 'check_availability' | 'book_table' | 'cancel_booking' | 'modify_booking';
+
 type ToolEvent = {
-  name: 'check_availability' | 'book_table';
+  name: ToolName;
   input: Record<string, unknown>;
   result: Record<string, unknown>;
+};
+
+// Status-pill copy per tool (the guest-visible "working…" label).
+const PILL_LABEL_KEY: Record<ToolName, string> = {
+  check_availability: 'reservation.toolChecking',
+  book_table: 'reservation.toolBooking',
+  cancel_booking: 'reservation.toolCancelling',
+  modify_booking: 'reservation.toolModifying',
 };
 
 type LedgerEntry = {
@@ -56,7 +66,7 @@ export default function ReservationSection() {
   const [transcript, setTranscript] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
-  const [activePill, setActivePill] = useState<'check_availability' | 'book_table' | null>(null);
+  const [activePill, setActivePill] = useState<ToolName | null>(null);
   const [bookings, setBookings] = useState<LedgerEntry[]>([]);
   const [emailFailed, setEmailFailed] = useState(false);
 
@@ -297,9 +307,7 @@ export default function ReservationSection() {
                     ) : (
                       <CalendarCheck size={13} strokeWidth={1.25} aria-hidden />
                     )}
-                    {activePill === 'check_availability'
-                      ? t('reservation.toolChecking')
-                      : t('reservation.toolBooking')}
+                    {t(PILL_LABEL_KEY[activePill])}
                   </motion.span>
                 </motion.div>
               )}

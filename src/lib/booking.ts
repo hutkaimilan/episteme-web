@@ -9,14 +9,25 @@
  * tracked PER DATE, never per time slot. (A different start time on the same
  * evening never yields extra capacity.)
  *
- * SEAM FOR A REAL DATABASE: the availability data below is a deterministic
- * pseudo-load (stable hash per date) combined with an in-memory record of
- * bookings made during this server session, so repeated checks and bookings
- * stay consistent (an evening booked to near-capacity correctly shows
- * reduced or no availability afterwards, at any time of that evening). To go
- * live, replace `baseLoad`, `dateBookings` and `usedCodes` with real
- * persistence (SQL/KV) behind the same two exported functions — their
- * signatures are the stable contract.
+ * FREE CAPACITY IS ONLY WHAT IS ACTUALLY BOOKED: a date's remaining capacity
+ * is 50 minus the SUM of every guest recorded for that date (across all start
+ * times) — nothing else. There is deliberately no synthetic pre-load: an
+ * evening with 12 guests booked shows 38 free, so a party of 30 is accepted
+ * (12 + 30 = 42 <= 50). (A previous build seeded each date with a per-date
+ * hash pseudo-load to look "realistic"; that phantom load stacked on top of
+ * real bookings and is exactly why the receptionist quoted wrong remaining
+ * counts and rejected parties that in fact fit — it has been removed.)
+ *
+ * SEAM FOR A REAL DATABASE: `dateBookings` (per-date aggregate) and `bookings`
+ * (per-code records) are an in-memory record of reservations made during this
+ * server session, so repeated checks, bookings, cancellations and
+ * modifications stay consistent (an evening booked to near-capacity correctly
+ * shows reduced or no availability afterwards, at any time of that evening,
+ * and a cancellation frees it again). To go live, replace them with real
+ * persistence (SQL/KV) behind the same exported functions — their signatures are the stable contract. NOTE: being
+ * in-memory, the record is per-process and resets on cold start (see
+ * resetBookings for the demo/admin reset), and does NOT coordinate across
+ * multiple serverless instances — see docs/known-limitations note in the PR.
  */
 
 export type AvailabilityResult = {
@@ -32,39 +43,71 @@ export type BookingResult = {
   reason?: string;
 };
 
+export type CancelResult = {
+  success: boolean;
+  reason?: string;
+  date?: string;
+  guests?: number;
+  remainingCapacity?: number;
+};
+
+export type ModifyResult = {
+  success: boolean;
+  reason?: string;
+  confirmationCode?: string;
+  date?: string;
+  guests?: number;
+  remainingCapacity?: number;
+};
+
+/** A single committed reservation, keyed by its confirmation code. */
+type BookingRecord = { date: string; time: string; guests: number };
+
 const CAPACITY = 50;
 
 /** Booked guests per DATE (the whole evening's shared pool) in this server session. */
 const dateBookings = new Map<string, number>();
-/** Confirmation codes issued in this session (collision guard). */
-const usedCodes = new Set<string>();
+/**
+ * Every committed reservation, keyed by its EP-XXXX confirmation code. Doubles
+ * as the issued-code collision guard AND the source of truth for cancellation
+ * and modification — cancelling frees the record's guests back to its date's
+ * pool. The per-date aggregate (`dateBookings`) stays in lock-step with this map.
+ */
+const bookings = new Map<string, BookingRecord>();
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]|24):([0-5]\d)$/;
 
-/** FNV-1a hash for the deterministic pseudo-load. */
-function hash(str: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h;
+/**
+ * Structured, greppable audit line for every booking decision — timestamp,
+ * requested date/time/party, the occupancy the engine actually saw, and the
+ * final decision. Written to stdout so it is retrievable after the fact from
+ * the platform logs. Deliberately carries NO guest PII (no name/phone); the
+ * confirmation code is server-side data and safe to log for traceability.
+ */
+function audit(entry: Record<string, unknown>): void {
+  console.log('[BOOKING_AUDIT]', JSON.stringify({ ts: new Date().toISOString(), ...entry }));
 }
 
-/** Plausible pre-existing load for an EVENING: 0–50 guests, stable per date. */
-function baseLoad(date: string): number {
-  return Math.min(CAPACITY, hash(date) % 56);
+/** Guests already booked for the evening of `date` (shared across every start time). */
+function bookedFor(date: string): number {
+  return dateBookings.get(date) ?? 0;
 }
 
-/** Seats still free for the given evening — shared across every start time of that date. */
+/** Seats still free for the given evening = 50 minus everyone booked that date. */
 function remainingFor(date: string): number {
-  return Math.max(0, CAPACITY - baseLoad(date) - (dateBookings.get(date) ?? 0));
+  return Math.max(0, CAPACITY - bookedFor(date));
 }
 
 function isWeekend(date: string): boolean {
   const day = new Date(`${date}T12:00:00`).getDay();
   return day === 0 || day === 6;
+}
+
+/** Today's date (YYYY-MM-DD) in the restaurant's timezone, so the past-date guard
+ * agrees with the "today" the model is grounded on in the system prompt. */
+function todayInBudapest(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Budapest' });
 }
 
 /** Minutes since 20:00 service start; '00:00' and '24:00' mean midnight of the same evening. */
@@ -85,9 +128,7 @@ function validateSlot(date: string, time: string): string | null {
   if (!TIME_RE.test(time)) {
     return 'invalid_time: use HH:MM (24h)';
   }
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  if (date < todayStr) {
+  if (date < todayInBudapest()) {
     return 'past_date: the requested date is in the past';
   }
   const minutes = toServiceMinutes(time);
@@ -108,8 +149,10 @@ function nextDay(date: string): string {
  * Alternatives when an evening cannot seat the party. Different times on the
  * SAME evening share the same pool, so they are deliberately NEVER suggested
  * — only other evenings (at the requested time) that can actually seat the
- * full party. A smaller same-evening party is signalled separately via
- * `remainingCapacity` in the result.
+ * FULL party. Scans up to 14 days ahead and returns only dates that genuinely
+ * fit `guests`, so the receptionist never blindly proposes the next day. A
+ * smaller same-evening party is signalled separately via `remainingCapacity`
+ * in the result.
  */
 function suggestAlternatives(date: string, time: string, guests: number): Array<{ date: string; time: string }> {
   const suggestions: Array<{ date: string; time: string }> = [];
@@ -123,7 +166,12 @@ function suggestAlternatives(date: string, time: string, guests: number): Array<
   return suggestions;
 }
 
-export function checkAvailability(date: string, time: string, guests: number): AvailabilityResult {
+/**
+ * Pure availability evaluation — NO audit side effect, so it can be reused
+ * internally (bookTable's commit-time re-check) without emitting a duplicate
+ * or misleading audit line.
+ */
+function evaluate(date: string, time: string, guests: number): AvailabilityResult {
   if (!Number.isInteger(guests) || guests < 1) {
     return { available: false, reason: 'invalid_guests: must be a positive integer' };
   }
@@ -149,16 +197,37 @@ export function checkAvailability(date: string, time: string, guests: number): A
   return { available: true, remainingCapacity: remaining };
 }
 
+export function checkAvailability(date: string, time: string, guests: number): AvailabilityResult {
+  const result = evaluate(date, time, guests);
+  audit({
+    op: 'check_availability',
+    date,
+    time,
+    guests,
+    alreadyBooked: bookedFor(date),
+    remaining: remainingFor(date),
+    decision: result.available ? 'available' : (result.reason?.split(':')[0] ?? 'unavailable'),
+  });
+  return result;
+}
+
 /** Confirmation codes are ALWAYS generated here, server-side — never by the model. */
 function generateCode(): string {
   for (let attempt = 0; attempt < 10000; attempt++) {
     const code = `EP-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
-    if (!usedCodes.has(code)) {
-      usedCodes.add(code);
+    if (!bookings.has(code)) {
       return code;
     }
   }
   throw new Error('confirmation code space exhausted');
+}
+
+/** Normalises a loosely-typed code ("ep 1234", "EP-1234 ") to the canonical
+ * `EP-XXXX`, so a guest need not reproduce the exact punctuation. */
+function normalizeCode(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  const m = /^ep[\s_-]*(\d{4})$/i.exec(s);
+  return m ? `EP-${m[1]}` : s;
 }
 
 export function bookTable(
@@ -169,23 +238,179 @@ export function bookTable(
   guests: number,
 ): BookingResult {
   if (typeof name !== 'string' || name.trim().length < 2) {
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_name' });
     return { success: false, reason: 'invalid_name: full name is required' };
   }
   if (typeof phone !== 'string' || (phone.match(/\d/g) ?? []).length < 6) {
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_phone' });
     return { success: false, reason: 'invalid_phone: a valid phone number is required' };
   }
 
-  // Re-validate against the same per-evening shared pool at commit time — a
-  // prior check may be stale.
-  const availability = checkAvailability(date, time, guests);
+  // ATOMIC commit against the per-evening shared pool. In Node's single-
+  // threaded event loop this whole block — the re-check via evaluate() and the
+  // dateBookings.set() below — runs to completion without yielding, so two
+  // near-simultaneous requests can NEVER both read the pre-write state and
+  // overbook: the second request's evaluate() already sees the first's commit.
+  // A prior checkAvailability may be stale, so we re-evaluate here rather than
+  // trust it. Do NOT introduce an `await` between this check and the set — that
+  // would open the read-modify-write race this atomicity depends on being closed.
+  const availability = evaluate(date, time, guests);
   if (!availability.available) {
+    audit({
+      op: 'book_table',
+      date,
+      time,
+      guests,
+      alreadyBooked: bookedFor(date),
+      remaining: remainingFor(date),
+      decision: 'rejected',
+      reason: availability.reason?.split(':')[0] ?? 'evening_unavailable',
+    });
     return { success: false, reason: availability.reason ?? 'evening_unavailable' };
   }
 
-  dateBookings.set(date, (dateBookings.get(date) ?? 0) + guests);
+  const before = bookedFor(date);
+  dateBookings.set(date, before + guests);
+  const code = generateCode();
+  bookings.set(code, { date, time, guests });
+
+  audit({
+    op: 'book_table',
+    date,
+    time,
+    guests,
+    alreadyBooked: before,
+    remaining: remainingFor(date),
+    decision: 'confirmed',
+    code,
+  });
 
   // NOTE: the guest-facing e-mail is sent by the CLIENT via @emailjs/browser
   // (a browser-only SDK) after it receives this successful result through the
   // API route's structured tool-call payload — see ReservationSection.tsx.
-  return { success: true, confirmationCode: generateCode() };
+  return { success: true, confirmationCode: code };
+}
+
+/**
+ * Demo / admin reset: clears every in-session booking and issued code so a
+ * pitch demo can start from a fresh, empty 50-seat evening. Exposed to the
+ * operator only through the secret-guarded POST /api/admin/reset route — never
+ * reachable from the guest-facing chat. Returns how many dates were cleared.
+ */
+export function resetBookings(): { clearedDates: number; clearedCodes: number } {
+  const clearedDates = dateBookings.size;
+  const clearedCodes = bookings.size;
+  dateBookings.clear();
+  bookings.clear();
+  audit({ op: 'reset', decision: 'cleared', clearedDates, clearedCodes });
+  return { clearedDates, clearedCodes };
+}
+
+/**
+ * Cancels the reservation identified by `confirmationCode`, returning its
+ * guests to that date's shared pool so the freed capacity is immediately
+ * bookable again. Idempotency: a second cancel of the same code reports
+ * `unknown_code` (the record is already gone). This is the only path by which
+ * a date's capacity can INCREASE during a session.
+ */
+export function cancelBooking(confirmationCode: string): CancelResult {
+  const code = normalizeCode(confirmationCode);
+  const record = bookings.get(code);
+  if (!record) {
+    audit({ op: 'cancel_booking', code, decision: 'rejected', reason: 'unknown_code' });
+    return { success: false, reason: 'unknown_code: no reservation found for that confirmation code' };
+  }
+
+  // Free the seats: subtract this record's guests from its date's pool.
+  const remainingBooked = Math.max(0, bookedFor(record.date) - record.guests);
+  if (remainingBooked === 0) {
+    dateBookings.delete(record.date);
+  } else {
+    dateBookings.set(record.date, remainingBooked);
+  }
+  bookings.delete(code);
+
+  audit({
+    op: 'cancel_booking',
+    code,
+    date: record.date,
+    guests: record.guests,
+    decision: 'cancelled',
+    remaining: remainingFor(record.date),
+  });
+  return { success: true, date: record.date, guests: record.guests, remainingCapacity: remainingFor(record.date) };
+}
+
+/**
+ * Changes the party size of an existing reservation. The new count is checked
+ * against the evening's 50-seat pool EXCLUDING this booking's own current
+ * guests (so a booking is never counted twice against itself — e.g. growing 12
+ * to 20 on an otherwise-empty evening is fine, and even keeping the same size
+ * always succeeds). The confirmation code and date/time are unchanged.
+ */
+export function modifyBooking(confirmationCode: string, newGuestCount: number): ModifyResult {
+  const code = normalizeCode(confirmationCode);
+  const record = bookings.get(code);
+  if (!record) {
+    audit({ op: 'modify_booking', code, decision: 'rejected', reason: 'unknown_code' });
+    return { success: false, reason: 'unknown_code: no reservation found for that confirmation code' };
+  }
+  if (!Number.isInteger(newGuestCount) || newGuestCount < 1) {
+    audit({ op: 'modify_booking', code, decision: 'rejected', reason: 'invalid_guests' });
+    return { success: false, reason: 'invalid_guests: must be a positive integer' };
+  }
+  if (newGuestCount > CAPACITY) {
+    audit({ op: 'modify_booking', code, decision: 'rejected', reason: 'party_too_large' });
+    return { success: false, reason: `party_too_large: total capacity is ${CAPACITY} guests per evening` };
+  }
+
+  // Seats used by every OTHER reservation that evening (this booking excluded).
+  const others = Math.max(0, bookedFor(record.date) - record.guests);
+  const capacityForThis = CAPACITY - others;
+  if (newGuestCount > capacityForThis) {
+    audit({
+      op: 'modify_booking',
+      code,
+      date: record.date,
+      fromGuests: record.guests,
+      toGuests: newGuestCount,
+      decision: 'rejected',
+      reason: 'insufficient_capacity',
+      remaining: capacityForThis,
+    });
+    return {
+      success: false,
+      reason: `insufficient_capacity: only ${capacityForThis} seats can be held for this reservation that evening`,
+      date: record.date,
+      remainingCapacity: capacityForThis,
+    };
+  }
+
+  const fromGuests = record.guests;
+  dateBookings.set(record.date, others + newGuestCount);
+  record.guests = newGuestCount;
+
+  audit({
+    op: 'modify_booking',
+    code,
+    date: record.date,
+    fromGuests,
+    toGuests: newGuestCount,
+    decision: 'modified',
+    remaining: remainingFor(record.date),
+  });
+  return {
+    success: true,
+    confirmationCode: code,
+    date: record.date,
+    guests: newGuestCount,
+    remainingCapacity: remainingFor(record.date),
+  };
+}
+
+/** Read-only snapshot of the current per-date occupancy (admin/observability). */
+export function bookingSnapshot(): Array<{ date: string; booked: number; remaining: number }> {
+  return [...dateBookings.entries()]
+    .map(([date, booked]) => ({ date, booked, remaining: Math.max(0, CAPACITY - booked) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }

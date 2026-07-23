@@ -111,6 +111,8 @@ export type Dictionary = {
     typing: string;
     toolChecking: string;
     toolBooking: string;
+    toolCancelling: string;
+    toolModifying: string;
     connectionError: string;
     ledgerTitle: string;
     guestsUnit: string;
@@ -494,6 +496,8 @@ const hu: Dictionary = {
     typing: 'A recepció írja a választ…',
     toolChecking: 'Elérhetőség ellenőrzése…',
     toolBooking: 'Foglalás rögzítése…',
+    toolCancelling: 'Foglalás lemondása…',
+    toolModifying: 'Létszám módosítása…',
     connectionError:
       'Elnézését kérjük, a kapcsolat megszakadt — kérem, próbálja meg újra néhány pillanat múlva.',
     ledgerTitle: 'Rögzített foglalásai',
@@ -881,6 +885,8 @@ const en: Dictionary = {
     typing: 'The reception is writing…',
     toolChecking: 'Checking availability…',
     toolBooking: 'Recording your reservation…',
+    toolCancelling: 'Cancelling your reservation…',
+    toolModifying: 'Updating your party size…',
     connectionError:
       'Our apologies — the connection was interrupted. Please try again in a moment.',
     ledgerTitle: 'Your reservations',
@@ -1268,6 +1274,8 @@ const es: Dictionary = {
     typing: 'La recepción está escribiendo…',
     toolChecking: 'Comprobando disponibilidad…',
     toolBooking: 'Registrando su reserva…',
+    toolCancelling: 'Cancelando su reserva…',
+    toolModifying: 'Actualizando el número de comensales…',
     connectionError:
       'Le rogamos nos disculpe: la conexión se ha interrumpido. Inténtelo de nuevo en unos instantes.',
     ledgerTitle: 'Sus reservas',
