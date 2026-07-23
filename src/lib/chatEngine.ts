@@ -1,10 +1,12 @@
 import { extractJson, hasSuspiciousToolSyntax, parseWholeJson } from './extractJson';
-import { bookTable, checkAvailability } from './booking';
+import { bookTable, cancelBooking, checkAvailability, modifyBooking } from './booking';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
+type ToolName = 'check_availability' | 'book_table' | 'cancel_booking' | 'modify_booking';
+
 export type ToolEvent = {
-  name: 'check_availability' | 'book_table';
+  name: ToolName;
   input: Record<string, unknown>;
   result: Record<string, unknown>;
 };
@@ -21,12 +23,15 @@ export type ModelCaller = (messages: ChatMessage[], systemSuffix: string) => Pro
 type SayAction = { type: 'say'; message: string };
 type ToolAction = {
   type: 'tool';
-  name: 'check_availability' | 'book_table';
+  name: ToolName;
   input: Record<string, unknown>;
 };
 
 const MAX_TOOL_ITERATIONS = 4;
 const MAX_MODEL_CALLS = 8;
+/** How many times we force a re-prompt when the model announces a check but
+ * fails to emit the tool call, before degrading gracefully. */
+const MAX_STALL_RETRIES = 2;
 
 const PROTOCOL_REMINDER =
   '\n\nSTRICT REMINDER: your previous reply violated the response protocol. You MUST respond with EXACTLY ONE JSON object of shape {"type":"say","message":"..."} or {"type":"tool","name":"...","input":{...}} — no prose, no markdown fences, no XML, no invented tool results.';
@@ -58,10 +63,14 @@ export function detectLang(text: string): 'hu' | 'en' | 'es' {
   return 'hu';
 }
 
+// Graceful, HUMAN fallback for when the model backend is unreachable, rate-
+// limited or misbehaving. It NEVER invents availability, a seat count or a
+// code — it simply apologises and points to a real contact. Better a candid
+// "please try again / reach us here" than a fabricated confirmation.
 const FALLBACK: Record<'hu' | 'en' | 'es', string> = {
-  hu: 'Elnézését kérjük, technikai nehézség adódott — kérem, próbálja meg újra néhány pillanat múlva.',
-  en: 'Our apologies — a technical difficulty occurred. Please try again in a moment.',
-  es: 'Le rogamos nos disculpe: se ha producido una dificultad técnica. Inténtelo de nuevo en unos instantes.',
+  hu: 'Elnézését kérem, egy pillanatra megszakadt a kapcsolat a foglalási rendszerünkkel. Kérem, próbálja meg ismét néhány pillanat múlva — ha sürgős, munkatársaink a bizniszpappa@gmail.com címen készséggel állnak rendelkezésére.',
+  en: 'My apologies — our reservation system is momentarily unavailable. Please try again in a few moments; if it is urgent, our team will gladly assist you at bizniszpappa@gmail.com.',
+  es: 'Le ruego me disculpe: nuestro sistema de reservas no está disponible por un instante. Inténtelo de nuevo en unos momentos; si es urgente, nuestro equipo le atenderá con mucho gusto en bizniszpappa@gmail.com.',
 };
 
 export function fallbackMessage(history: ChatMessage[]): string {
@@ -98,6 +107,16 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
     ) {
       return { type: 'tool', name: 'book_table', input };
     }
+    if (obj.name === 'cancel_booking' && typeof input.confirmationCode === 'string') {
+      return { type: 'tool', name: 'cancel_booking', input };
+    }
+    if (
+      obj.name === 'modify_booking' &&
+      typeof input.confirmationCode === 'string' &&
+      typeof input.guests === 'number'
+    ) {
+      return { type: 'tool', name: 'modify_booking', input };
+    }
   }
   return null;
 }
@@ -109,6 +128,15 @@ function executeTool(action: ToolAction): Record<string, unknown> {
     return checkAvailability(
       input.date as string,
       input.time as string,
+      input.guests as number,
+    ) as unknown as Record<string, unknown>;
+  }
+  if (action.name === 'cancel_booking') {
+    return cancelBooking(input.confirmationCode as string) as unknown as Record<string, unknown>;
+  }
+  if (action.name === 'modify_booking') {
+    return modifyBooking(
+      input.confirmationCode as string,
       input.guests as number,
     ) as unknown as Record<string, unknown>;
   }
@@ -133,7 +161,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   let toolIterations = 0;
   let modelCalls = 0;
   let retriedProtocol = false;
-  let stallRetried = false;
+  let stallRetries = 0;
   let forceStallReminder = false;
 
   while (modelCalls < MAX_MODEL_CALLS) {
@@ -181,16 +209,26 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         !/check_availability|book_table/i.test(trimmed);
       if (cleanProse) {
         // Announced intent ("let me check…") must NOT be auto-wrapped — that
-        // would return the stall to the guest. Route it to the force-tool
-        // retry instead; only genuinely informational prose gets wrapped.
-        if (isActionAnnouncement(trimmed) && toolIterations === 0 && !stallRetried) {
-          stallRetried = true;
-          forceStallReminder = true;
+        // would return the stall to the guest. Force the tool call instead;
+        // only genuinely informational prose gets wrapped.
+        if (isActionAnnouncement(trimmed) && toolIterations === 0) {
+          if (stallRetries < MAX_STALL_RETRIES) {
+            stallRetries++;
+            forceStallReminder = true;
+            console.error(
+              `[GROQ_ERROR] Stalled availability-check announcement without tool call (force-tool retry ${stallRetries}/${MAX_STALL_RETRIES}); raw output:`,
+              trimmed.slice(0, 200),
+            );
+            continue;
+          }
+          // Model kept announcing a check but never emitted the tool call.
+          // Returning "let me check…" would leave the guest hanging (and could
+          // smuggle a hallucinated number) — degrade gracefully instead.
           console.error(
-            '[GROQ_ERROR] Detected stalled availability-check announcement without tool call, forcing tool invocation retry; raw output:',
+            '[GROQ_ERROR] Model kept announcing an availability check without emitting the tool call after retries; graceful fallback; raw output:',
             trimmed.slice(0, 200),
           );
-          continue;
+          return { message: fallbackMessage(history), toolCalls, error: true };
         }
         console.error(
           '[GROQ_ERROR] Recovered plain-text say response via auto-wrap; raw output:',
@@ -218,14 +256,24 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       // the tool call. After one forced retry the say is returned as-is to
       // avoid loops. Post-tool says are never touched (past-tense
       // "ellenőriztem" delivering results is legitimate there).
-      if (toolIterations === 0 && !stallRetried && isActionAnnouncement(action.message)) {
-        stallRetried = true;
-        forceStallReminder = true;
+      if (toolIterations === 0 && isActionAnnouncement(action.message)) {
+        if (stallRetries < MAX_STALL_RETRIES) {
+          stallRetries++;
+          forceStallReminder = true;
+          console.error(
+            `[GROQ_ERROR] Stalled availability-check announcement without tool call (force-tool retry ${stallRetries}/${MAX_STALL_RETRIES}); message:`,
+            action.message.slice(0, 200),
+          );
+          continue;
+        }
+        // Exhausted retries with only an announcement and no tool call — never
+        // return the dangling "máris ellenőrzöm" (or a number it never looked
+        // up) to the guest; degrade gracefully.
         console.error(
-          '[GROQ_ERROR] Detected stalled availability-check announcement without tool call, forcing tool invocation retry; message:',
+          '[GROQ_ERROR] Model kept announcing an availability check without emitting the tool call after retries; graceful fallback; message:',
           action.message.slice(0, 200),
         );
-        continue;
+        return { message: fallbackMessage(history), toolCalls, error: true };
       }
       return { message: action.message, toolCalls };
     }

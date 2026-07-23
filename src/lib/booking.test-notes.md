@@ -1,10 +1,16 @@
 # Booking engine — test notes
 
-No test runner is configured in this project (no `test` script, no Vitest/Jest),
-so per the Phase 6 brief these are the documented edge cases the logic in
-`booking.ts`, `extractJson.ts` and `chatEngine.ts` must handle. They were
-exercised manually with a standalone script during development; if a runner is
-added later, convert each bullet into a unit test.
+Executable tests now exist and run with **zero extra dependencies** on Node's
+built-in runner (type-stripping + a tiny resolve hook for the project's
+extensionless imports):
+
+```
+npm test        # node --import ./scripts/ts-resolve.mjs --test "src/**/*.test.ts"
+```
+
+Coverage lives in `src/lib/booking.test.ts`, `src/lib/chatEngine.test.ts` and
+`src/lib/relativeDates.test.ts`. The edge cases below document the behaviour
+those tests assert.
 
 ## Capacity model (per-evening shared pool)
 
@@ -59,10 +65,28 @@ other time that same Thursday evening.
 - Tool-loop cap: more than 4 tool iterations in one guest turn → graceful
   fallback, no infinite loop.
 
+## Capacity = real bookings only (root-cause fix)
+
+A date's remaining capacity is `50 - (sum of all guests booked for that date)`
+and NOTHING else. An earlier build added a per-date hash "pseudo-load" on top
+of real bookings to look realistic; that phantom load is exactly why the
+receptionist quoted wrong remaining counts (e.g. "only 19 left" with just 12
+actually booked) and rejected parties that fit — it has been removed. So 12
+booked + 30 requested for the same date = 42 ≤ 50 → accepted.
+
+## Cancellation & modification
+
+`cancelBooking(code)` frees a reservation's guests back to its date's pool
+(the only way capacity INCREASES in a session); an unknown/already-cancelled
+code returns `unknown_code`. `modifyBooking(code, newGuests)` re-sizes a
+reservation, checking the new count against the 50-seat evening pool EXCLUDING
+the booking's own current guests (never double-counted); a larger party that no
+longer fits returns `insufficient_capacity`. Both are wired as agent tools
+(`cancel_booking` / `modify_booking`) and audited.
+
 ## Store seam
 
-Availability = deterministic pseudo-load (stable hash per `date` — one pool
-per evening) plus in-memory session bookings summed per date. Swap
-`baseLoad` / `dateBookings` / `usedCodes` in `booking.ts` for real
-persistence to go live; the exported function signatures are the stable
-contract.
+In-memory per-date aggregate (`dateBookings`) plus per-code reservation records
+(`bookings`, which also guards code collisions). `resetBookings()` clears both
+(demo reset). Swap these for real persistence (SQL/KV) to go live; the exported
+function signatures are the stable contract.
