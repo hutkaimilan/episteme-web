@@ -84,9 +84,34 @@ the booking's own current guests (never double-counted); a larger party that no
 longer fits returns `insufficient_capacity`. Both are wired as agent tools
 (`cancel_booking` / `modify_booking`) and audited.
 
-## Store seam
+## Storage layer (`src/lib/kv.ts`)
 
-In-memory per-date aggregate (`dateBookings`) plus per-code reservation records
-(`bookings`, which also guards code collisions). `resetBookings()` clears both
-(demo reset). Swap these for real persistence (SQL/KV) to go live; the exported
-function signatures are the stable contract.
+Persistence lives behind the `store` abstraction, with two interchangeable
+backends chosen by environment:
+
+- **Vercel KV (Redis/Upstash)** when `KV_REST_API_URL` + `KV_REST_API_TOKEN`
+  are set — the production path. State is shared across serverless instances,
+  so capacity is consistent fleet-wide and survives cold starts.
+- **In-memory** otherwise — used by the whole test suite / CI (no live KV
+  needed) and by local `next dev` without KV. Same semantics, per-process only.
+
+Keys: `episteme:booked:{date}` (integer seat count) and
+`episteme:booking:{code}` (reservation record). `resetBookings()` →
+`store.clearAll()` wipes both.
+
+### Atomicity (race protection)
+
+Capacity mutations are single ATOMIC operations, never read-then-write:
+
+- **reserve** (book) and **resize** (modify) run as Redis **Lua scripts** in
+  production (Redis executes them single-threaded, so concurrent bookings can
+  never both read the pre-write count and overbook the 50 pool). The in-memory
+  backend gets the same guarantee from Node's single-threaded event loop.
+- **cancel** frees seats exactly once via a **delete-gate**: only the caller
+  whose `deleteRecord` actually removed the record decrements the counter, so a
+  double-cancel can't double-free.
+
+`kv.test.ts` exercises these store contracts directly against the in-memory
+backend (concurrent reserves capped, resize excludes own seats, free floors at
+zero, delete-gate exactly-once). Because the booking functions are async over
+the store, all tests `await` them.

@@ -143,32 +143,33 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
   return null;
 }
 
-/** Executes the REAL server-side function — the model's own words never stand in for a result. */
-function executeTool(action: ToolAction): Record<string, unknown> {
+/** Executes the REAL server-side function — the model's own words never stand
+ * in for a result. Async because the booking store is (Vercel KV in prod). */
+async function executeTool(action: ToolAction): Promise<Record<string, unknown>> {
   const input = action.input;
   if (action.name === 'check_availability') {
-    return checkAvailability(
+    return (await checkAvailability(
       input.date as string,
       input.time as string,
       input.guests as number,
-    ) as unknown as Record<string, unknown>;
+    )) as unknown as Record<string, unknown>;
   }
   if (action.name === 'cancel_booking') {
-    return cancelBooking(input.confirmationCode as string) as unknown as Record<string, unknown>;
+    return (await cancelBooking(input.confirmationCode as string)) as unknown as Record<string, unknown>;
   }
   if (action.name === 'modify_booking') {
-    return modifyBooking(
+    return (await modifyBooking(
       input.confirmationCode as string,
       input.guests as number,
-    ) as unknown as Record<string, unknown>;
+    )) as unknown as Record<string, unknown>;
   }
-  return bookTable(
+  return (await bookTable(
     input.name as string,
     input.phone as string,
     input.date as string,
     input.time as string,
     input.guests as number,
-  ) as unknown as Record<string, unknown>;
+  )) as unknown as Record<string, unknown>;
 }
 
 /**
@@ -306,7 +307,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     }
     toolIterations++;
 
-    const result = executeTool(action);
+    const result = await executeTool(action);
     toolCalls.push({ name: action.name, input: action.input, result });
 
     messages.push({ role: 'assistant', content: JSON.stringify(action) });
