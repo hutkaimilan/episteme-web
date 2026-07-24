@@ -4,9 +4,11 @@
  * we defensively handle fences, stray prose and nested braces anyway.
  */
 
-/** Strips markdown code fences (```json ... ``` or ``` ... ```) if the whole text is fenced. */
+/** Strips markdown code fences if the whole text is fenced — accepts any (or
+ * no) language tag (```json, ```JSON, ```javascript, plain ```, …), since
+ * models are inconsistent about which tag they use. */
 function stripFences(text: string): string {
-  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  const fenced = text.match(/^```[a-zA-Z]*\s*([\s\S]*?)\s*```$/);
   return fenced ? fenced[1] : text;
 }
 
@@ -47,13 +49,33 @@ function firstBalancedObject(text: string): string | null {
 }
 
 /**
+ * Removes a trailing comma immediately before a closing `}` or `]` — a very
+ * common LLM JSON slip (many programming languages tolerate it; JSON does
+ * not). Deliberately a LAST RESORT only, applied after a normal JSON.parse
+ * has already failed: a plain regex is not string-aware, so it could in
+ * theory alter a string VALUE that happens to end in exactly ",}" — an
+ * outcome only reachable when the text was already unparseable anyway (i.e.
+ * never applied to already-valid JSON), making that risk negligible in
+ * practice for guest-facing restaurant conversation text.
+ */
+function repairTrailingCommas(text: string): string {
+  return text.replace(/,(\s*[}\]])/g, '$1');
+}
+
+/**
  * Strict variant: succeeds only when the WHOLE response (minus fences and
  * whitespace) is one JSON object — no substring salvage. The safety net uses
  * this to decide whether suspicious tool syntax co-exists with a clean reply.
  */
 export function parseWholeJson(text: string): unknown | null {
+  const cleaned = stripFences(text.trim()).trim();
   try {
-    return JSON.parse(stripFences(text.trim()).trim());
+    return JSON.parse(cleaned);
+  } catch {
+    // fall through to the trailing-comma repair
+  }
+  try {
+    return JSON.parse(repairTrailingCommas(cleaned));
   } catch {
     return null;
   }
@@ -73,7 +95,12 @@ export function extractJson(text: string): unknown | null {
     try {
       return JSON.parse(candidate);
     } catch {
-      return null;
+      // last resort: a dangling comma before the closing brace/bracket
+      try {
+        return JSON.parse(repairTrailingCommas(candidate));
+      } catch {
+        return null;
+      }
     }
   }
   return null;

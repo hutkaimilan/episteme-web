@@ -298,6 +298,25 @@ test('book_table with guests as a STRING is coerced and executed (regression)', 
   assert.doesNotMatch(result.message, /megszakadt a kapcsolat/);
 });
 
+// ---------------------------------------------------------------------------
+// PROACTIVE AUDIT: a trailing comma in the model's JSON (a very common LLM
+// slip — many languages tolerate it, JSON does not) is repaired end-to-end
+// through the full booking flow, not just at the extractJson unit level.
+// ---------------------------------------------------------------------------
+test('book_table with a trailing comma in the JSON is repaired and executed', async () => {
+  const date = daysFromToday(10);
+  const model = scriptedModel([
+    `{"type":"tool","name":"book_table","input":{"name":"Teszt Vendég","phone":"+36301234567","date":"${date}","time":"21:00","guests":30,}}`,
+    '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
+  ]);
+  const result = await runTurn([user('Igen, erősítse meg 30 főre.')], model);
+
+  assert.ok(!result.error, 'must NOT fall back');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].result.success, true);
+  assert.doesNotMatch(result.message, /megszakadt a kapcsolat/);
+});
+
 test('check_availability with guests as a string and a numeric phone are coerced', async () => {
   const date = daysFromToday(9);
   const model = scriptedModel([
