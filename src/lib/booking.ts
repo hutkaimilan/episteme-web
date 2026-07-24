@@ -13,22 +13,18 @@
  * is 50 minus the SUM of every guest recorded for that date (across all start
  * times) — nothing else. There is deliberately no synthetic pre-load: an
  * evening with 12 guests booked shows 38 free, so a party of 30 is accepted
- * (12 + 30 = 42 <= 50). (A previous build seeded each date with a per-date
- * hash pseudo-load to look "realistic"; that phantom load stacked on top of
- * real bookings and is exactly why the receptionist quoted wrong remaining
- * counts and rejected parties that in fact fit — it has been removed.)
+ * (12 + 30 = 42 <= 50).
  *
- * SEAM FOR A REAL DATABASE: `dateBookings` (per-date aggregate) and `bookings`
- * (per-code records) are an in-memory record of reservations made during this
- * server session, so repeated checks, bookings, cancellations and
- * modifications stay consistent (an evening booked to near-capacity correctly
- * shows reduced or no availability afterwards, at any time of that evening,
- * and a cancellation frees it again). To go live, replace them with real
- * persistence (SQL/KV) behind the same exported functions — their signatures are the stable contract. NOTE: being
- * in-memory, the record is per-process and resets on cold start (see
- * resetBookings for the demo/admin reset), and does NOT coordinate across
- * multiple serverless instances — see docs/known-limitations note in the PR.
+ * STORAGE: persistence lives behind the `store` abstraction (src/lib/kv.ts) —
+ * Vercel KV (Redis) in production (shared across serverless instances), an
+ * in-memory equivalent in tests/CI and local dev. This module only holds the
+ * booking RULES; the store holds the data. Capacity mutations go through the
+ * store's ATOMIC reserve/resize operations so two concurrent bookings can
+ * never overbook the 50-seat pool (Redis Lua in prod; single-threaded event
+ * loop in memory — see kv.ts). These functions are async because the store is.
  */
+
+import { store } from './kv';
 
 export type AvailabilityResult = {
   available: boolean;
@@ -60,20 +56,7 @@ export type ModifyResult = {
   remainingCapacity?: number;
 };
 
-/** A single committed reservation, keyed by its confirmation code. */
-type BookingRecord = { date: string; time: string; guests: number };
-
 const CAPACITY = 50;
-
-/** Booked guests per DATE (the whole evening's shared pool) in this server session. */
-const dateBookings = new Map<string, number>();
-/**
- * Every committed reservation, keyed by its EP-XXXX confirmation code. Doubles
- * as the issued-code collision guard AND the source of truth for cancellation
- * and modification — cancelling frees the record's guests back to its date's
- * pool. The per-date aggregate (`dateBookings`) stays in lock-step with this map.
- */
-const bookings = new Map<string, BookingRecord>();
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]|24):([0-5]\d)$/;
@@ -89,14 +72,9 @@ function audit(entry: Record<string, unknown>): void {
   console.log('[BOOKING_AUDIT]', JSON.stringify({ ts: new Date().toISOString(), ...entry }));
 }
 
-/** Guests already booked for the evening of `date` (shared across every start time). */
-function bookedFor(date: string): number {
-  return dateBookings.get(date) ?? 0;
-}
-
 /** Seats still free for the given evening = 50 minus everyone booked that date. */
-function remainingFor(date: string): number {
-  return Math.max(0, CAPACITY - bookedFor(date));
+async function remainingFor(date: string): Promise<number> {
+  return Math.max(0, CAPACITY - (await store.getBooked(date)));
 }
 
 function isWeekend(date: string): boolean {
@@ -150,16 +128,18 @@ function nextDay(date: string): string {
  * SAME evening share the same pool, so they are deliberately NEVER suggested
  * — only other evenings (at the requested time) that can actually seat the
  * FULL party. Scans up to 14 days ahead and returns only dates that genuinely
- * fit `guests`, so the receptionist never blindly proposes the next day. A
- * smaller same-evening party is signalled separately via `remainingCapacity`
- * in the result.
+ * fit `guests`, so the receptionist never blindly proposes the next day.
  */
-function suggestAlternatives(date: string, time: string, guests: number): Array<{ date: string; time: string }> {
+async function suggestAlternatives(
+  date: string,
+  time: string,
+  guests: number,
+): Promise<Array<{ date: string; time: string }>> {
   const suggestions: Array<{ date: string; time: string }> = [];
   let candidate = date;
   for (let i = 0; i < 14 && suggestions.length < 3; i++) {
     candidate = nextDay(candidate);
-    if (validateSlot(candidate, time) === null && remainingFor(candidate) >= guests) {
+    if (validateSlot(candidate, time) === null && (await remainingFor(candidate)) >= guests) {
       suggestions.push({ date: candidate, time });
     }
   }
@@ -167,11 +147,20 @@ function suggestAlternatives(date: string, time: string, guests: number): Array<
 }
 
 /**
- * Pure availability evaluation — NO audit side effect, so it can be reused
- * internally (bookTable's commit-time re-check) without emitting a duplicate
- * or misleading audit line.
+ * Capacity reason string shared by checkAvailability and the bookTable
+ * commit-time rejection, so both speak with one voice.
  */
-function evaluate(date: string, time: string, guests: number): AvailabilityResult {
+function capacityReason(remaining: number): string {
+  return remaining === 0
+    ? 'evening_fully_booked: this evening is fully booked (single seating, shared 50-seat pool — no time on this date has capacity)'
+    : `insufficient_capacity: only ${remaining} seats remain for this ENTIRE evening (single seating, no table turnover) — a party of up to ${remaining} could still be seated this evening`;
+}
+
+/**
+ * Pure availability evaluation (read-only) — NO audit side effect, so it can
+ * back both the public checkAvailability and internal reuse.
+ */
+async function evaluate(date: string, time: string, guests: number): Promise<AvailabilityResult> {
   if (!Number.isInteger(guests) || guests < 1) {
     return { available: false, reason: 'invalid_guests: must be a positive integer' };
   }
@@ -182,44 +171,45 @@ function evaluate(date: string, time: string, guests: number): AvailabilityResul
   if (slotError) {
     return { available: false, reason: slotError };
   }
-  const remaining = remainingFor(date);
+  const remaining = await remainingFor(date);
   if (guests > remaining) {
     return {
       available: false,
       remainingCapacity: remaining,
-      reason:
-        remaining === 0
-          ? 'evening_fully_booked: this evening is fully booked (single seating, shared 50-seat pool — no time on this date has capacity)'
-          : `insufficient_capacity: only ${remaining} seats remain for this ENTIRE evening (single seating, no table turnover) — a party of up to ${remaining} could still be seated this evening`,
-      suggestedAlternatives: suggestAlternatives(date, time, guests),
+      reason: capacityReason(remaining),
+      suggestedAlternatives: await suggestAlternatives(date, time, guests),
     };
   }
   return { available: true, remainingCapacity: remaining };
 }
 
-export function checkAvailability(date: string, time: string, guests: number): AvailabilityResult {
-  const result = evaluate(date, time, guests);
+export async function checkAvailability(
+  date: string,
+  time: string,
+  guests: number,
+): Promise<AvailabilityResult> {
+  const result = await evaluate(date, time, guests);
+  const booked = await store.getBooked(date);
   audit({
     op: 'check_availability',
     date,
     time,
     guests,
-    alreadyBooked: bookedFor(date),
-    remaining: remainingFor(date),
+    alreadyBooked: booked,
+    remaining: Math.max(0, CAPACITY - booked),
     decision: result.available ? 'available' : (result.reason?.split(':')[0] ?? 'unavailable'),
   });
   return result;
 }
 
-/** Confirmation codes are ALWAYS generated here, server-side — never by the model. */
-function generateCode(): string {
+/** Confirmation codes are ALWAYS generated here, server-side — never by the
+ * model. Claims the code atomically (SET NX) so two bookings can't share one. */
+async function claimUniqueCode(rec: { date: string; time: string; guests: number }): Promise<string | null> {
   for (let attempt = 0; attempt < 10000; attempt++) {
     const code = `EP-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
-    if (!bookings.has(code)) {
-      return code;
-    }
+    if (await store.claimRecord(code, rec)) return code;
   }
-  throw new Error('confirmation code space exhausted');
+  return null;
 }
 
 /** Normalises a loosely-typed code ("ep 1234", "EP-1234 ") to the canonical
@@ -230,13 +220,13 @@ function normalizeCode(raw: unknown): string {
   return m ? `EP-${m[1]}` : s;
 }
 
-export function bookTable(
+export async function bookTable(
   name: string,
   phone: string,
   date: string,
   time: string,
   guests: number,
-): BookingResult {
+): Promise<BookingResult> {
   if (typeof name !== 'string' || name.trim().length < 2) {
     audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_name' });
     return { success: false, reason: 'invalid_name: full name is required' };
@@ -245,42 +235,46 @@ export function bookTable(
     audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_phone' });
     return { success: false, reason: 'invalid_phone: a valid phone number is required' };
   }
-
-  // ATOMIC commit against the per-evening shared pool. In Node's single-
-  // threaded event loop this whole block — the re-check via evaluate() and the
-  // dateBookings.set() below — runs to completion without yielding, so two
-  // near-simultaneous requests can NEVER both read the pre-write state and
-  // overbook: the second request's evaluate() already sees the first's commit.
-  // A prior checkAvailability may be stale, so we re-evaluate here rather than
-  // trust it. Do NOT introduce an `await` between this check and the set — that
-  // would open the read-modify-write race this atomicity depends on being closed.
-  const availability = evaluate(date, time, guests);
-  if (!availability.available) {
-    audit({
-      op: 'book_table',
-      date,
-      time,
-      guests,
-      alreadyBooked: bookedFor(date),
-      remaining: remainingFor(date),
-      decision: 'rejected',
-      reason: availability.reason?.split(':')[0] ?? 'evening_unavailable',
-    });
-    return { success: false, reason: availability.reason ?? 'evening_unavailable' };
+  if (!Number.isInteger(guests) || guests < 1) {
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_guests' });
+    return { success: false, reason: 'invalid_guests: must be a positive integer' };
+  }
+  if (guests > CAPACITY) {
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'party_too_large' });
+    return { success: false, reason: `party_too_large: total capacity is ${CAPACITY} guests per evening` };
+  }
+  const slotError = validateSlot(date, time);
+  if (slotError) {
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: slotError.split(':')[0] });
+    return { success: false, reason: slotError };
   }
 
-  const before = bookedFor(date);
-  dateBookings.set(date, before + guests);
-  const code = generateCode();
-  bookings.set(code, { date, time, guests });
+  // ATOMIC capacity commit — the store reserves the seats in ONE operation
+  // (Redis Lua in prod; single-threaded in memory), so two near-simultaneous
+  // bookings can never both read the pre-write count and overbook the pool.
+  const { ok, booked } = await store.reserve(date, guests, CAPACITY);
+  if (!ok) {
+    const remaining = Math.max(0, CAPACITY - booked);
+    audit({ op: 'book_table', date, time, guests, alreadyBooked: booked, remaining, decision: 'rejected', reason: 'insufficient_capacity' });
+    return { success: false, reason: capacityReason(remaining) };
+  }
+
+  const code = await claimUniqueCode({ date, time, guests });
+  if (!code) {
+    // Could not mint a unique code — release the just-reserved seats so the
+    // pool is not silently consumed, and fail cleanly.
+    await store.freeSeats(date, guests);
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'code_space_exhausted' });
+    return { success: false, reason: 'internal_error: could not allocate a confirmation code' };
+  }
 
   audit({
     op: 'book_table',
     date,
     time,
     guests,
-    alreadyBooked: before,
-    remaining: remainingFor(date),
+    alreadyBooked: booked - guests,
+    remaining: Math.max(0, CAPACITY - booked),
     decision: 'confirmed',
     code,
   });
@@ -292,65 +286,51 @@ export function bookTable(
 }
 
 /**
- * Demo / admin reset: clears every in-session booking and issued code so a
- * pitch demo can start from a fresh, empty 50-seat evening. Exposed to the
- * operator only through the secret-guarded POST /api/admin/reset route — never
- * reachable from the guest-facing chat. Returns how many dates were cleared.
- */
-export function resetBookings(): { clearedDates: number; clearedCodes: number } {
-  const clearedDates = dateBookings.size;
-  const clearedCodes = bookings.size;
-  dateBookings.clear();
-  bookings.clear();
-  audit({ op: 'reset', decision: 'cleared', clearedDates, clearedCodes });
-  return { clearedDates, clearedCodes };
-}
-
-/**
  * Cancels the reservation identified by `confirmationCode`, returning its
  * guests to that date's shared pool so the freed capacity is immediately
- * bookable again. Idempotency: a second cancel of the same code reports
- * `unknown_code` (the record is already gone). This is the only path by which
- * a date's capacity can INCREASE during a session.
+ * bookable again. The record delete acts as a gate — only the caller that
+ * actually removes the record frees the seats, so a concurrent double-cancel
+ * cannot double-decrement. This is the only path by which a date's capacity
+ * can INCREASE during a session.
  */
-export function cancelBooking(confirmationCode: string): CancelResult {
+export async function cancelBooking(confirmationCode: string): Promise<CancelResult> {
   const code = normalizeCode(confirmationCode);
-  const record = bookings.get(code);
+  const record = await store.loadRecord(code);
   if (!record) {
     audit({ op: 'cancel_booking', code, decision: 'rejected', reason: 'unknown_code' });
     return { success: false, reason: 'unknown_code: no reservation found for that confirmation code' };
   }
 
-  // Free the seats: subtract this record's guests from its date's pool.
-  const remainingBooked = Math.max(0, bookedFor(record.date) - record.guests);
-  if (remainingBooked === 0) {
-    dateBookings.delete(record.date);
-  } else {
-    dateBookings.set(record.date, remainingBooked);
+  // Delete-gate: only the winner of the delete frees the seats.
+  const removed = await store.deleteRecord(code);
+  if (!removed) {
+    audit({ op: 'cancel_booking', code, decision: 'rejected', reason: 'unknown_code' });
+    return { success: false, reason: 'unknown_code: no reservation found for that confirmation code' };
   }
-  bookings.delete(code);
+  await store.freeSeats(record.date, record.guests);
 
+  const remaining = await remainingFor(record.date);
   audit({
     op: 'cancel_booking',
     code,
     date: record.date,
     guests: record.guests,
     decision: 'cancelled',
-    remaining: remainingFor(record.date),
+    remaining,
   });
-  return { success: true, date: record.date, guests: record.guests, remainingCapacity: remainingFor(record.date) };
+  return { success: true, date: record.date, guests: record.guests, remainingCapacity: remaining };
 }
 
 /**
  * Changes the party size of an existing reservation. The new count is checked
  * against the evening's 50-seat pool EXCLUDING this booking's own current
- * guests (so a booking is never counted twice against itself — e.g. growing 12
- * to 20 on an otherwise-empty evening is fine, and even keeping the same size
- * always succeeds). The confirmation code and date/time are unchanged.
+ * guests (so a booking is never counted twice against itself). The capacity
+ * mutation is a single atomic store operation. The confirmation code and
+ * date/time are unchanged.
  */
-export function modifyBooking(confirmationCode: string, newGuestCount: number): ModifyResult {
+export async function modifyBooking(confirmationCode: string, newGuestCount: number): Promise<ModifyResult> {
   const code = normalizeCode(confirmationCode);
-  const record = bookings.get(code);
+  const record = await store.loadRecord(code);
   if (!record) {
     audit({ op: 'modify_booking', code, decision: 'rejected', reason: 'unknown_code' });
     return { success: false, reason: 'unknown_code: no reservation found for that confirmation code' };
@@ -364,10 +344,10 @@ export function modifyBooking(confirmationCode: string, newGuestCount: number): 
     return { success: false, reason: `party_too_large: total capacity is ${CAPACITY} guests per evening` };
   }
 
-  // Seats used by every OTHER reservation that evening (this booking excluded).
-  const others = Math.max(0, bookedFor(record.date) - record.guests);
-  const capacityForThis = CAPACITY - others;
-  if (newGuestCount > capacityForThis) {
+  // Atomic re-size against the shared pool, excluding this booking's own seats.
+  const { ok, others } = await store.resize(record.date, record.guests, newGuestCount, CAPACITY);
+  if (!ok) {
+    const capacityForThis = CAPACITY - others;
     audit({
       op: 'modify_booking',
       code,
@@ -387,9 +367,9 @@ export function modifyBooking(confirmationCode: string, newGuestCount: number): 
   }
 
   const fromGuests = record.guests;
-  dateBookings.set(record.date, others + newGuestCount);
-  record.guests = newGuestCount;
+  await store.saveRecord(code, { ...record, guests: newGuestCount });
 
+  const remaining = await remainingFor(record.date);
   audit({
     op: 'modify_booking',
     code,
@@ -397,20 +377,31 @@ export function modifyBooking(confirmationCode: string, newGuestCount: number): 
     fromGuests,
     toGuests: newGuestCount,
     decision: 'modified',
-    remaining: remainingFor(record.date),
+    remaining,
   });
   return {
     success: true,
     confirmationCode: code,
     date: record.date,
     guests: newGuestCount,
-    remainingCapacity: remainingFor(record.date),
+    remainingCapacity: remaining,
   };
 }
 
+/**
+ * Demo / admin reset: clears every reservation + seat counter so a pitch demo
+ * can begin from a fresh, empty 50-seat evening. Exposed to the operator only
+ * through the secret-guarded POST /api/admin/reset route — never reachable
+ * from the guest-facing chat. Returns how many dates/codes were cleared.
+ */
+export async function resetBookings(): Promise<{ clearedDates: number; clearedCodes: number }> {
+  const cleared = await store.clearAll();
+  audit({ op: 'reset', decision: 'cleared', ...cleared });
+  return cleared;
+}
+
 /** Read-only snapshot of the current per-date occupancy (admin/observability). */
-export function bookingSnapshot(): Array<{ date: string; booked: number; remaining: number }> {
-  return [...dateBookings.entries()]
-    .map(([date, booked]) => ({ date, booked, remaining: Math.max(0, CAPACITY - booked) }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+export async function bookingSnapshot(): Promise<Array<{ date: string; booked: number; remaining: number }>> {
+  const snap = await store.snapshot();
+  return snap.map(({ date, booked }) => ({ date, booked, remaining: Math.max(0, CAPACITY - booked) }));
 }

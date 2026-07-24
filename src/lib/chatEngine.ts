@@ -78,7 +78,36 @@ export function fallbackMessage(history: ChatMessage[]): string {
   return FALLBACK[detectLang(lastUser?.content ?? '')];
 }
 
-/** Validates a parsed object against the two allowed protocol shapes. */
+/**
+ * Coerces a guest count that the model may (and llama-3.3-70b often does) emit
+ * as a STRING ("30") or a float (30.0) into a positive integer — returns null
+ * only when it is genuinely not a number. Being strict here was a real
+ * production bug: a valid book_table with "guests":"30" was rejected as a
+ * protocol violation and the guest saw the connection-lost fallback instead of
+ * a confirmation. (The Retell voice route already coerced; the chat engine now
+ * matches it.)
+ */
+function coerceGuests(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value.trim());
+    if (Number.isFinite(n)) return Math.trunc(n);
+  }
+  return null;
+}
+
+/** A required text field: accept a string, or a number the model sent unquoted
+ * (e.g. a phone number as JSON number) by stringifying it. undefined otherwise. */
+function coerceText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+/** Validates a parsed object against the allowed protocol shapes, tolerating
+ * the model's common type quirks (numbers as strings, phone as a number) by
+ * coercing rather than rejecting — the downstream booking engine does the real
+ * value validation. */
 function asValidAction(parsed: unknown): SayAction | ToolAction | null {
   if (!parsed || typeof parsed !== 'object') return null;
   const obj = parsed as Record<string, unknown>;
@@ -89,64 +118,58 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
 
   if (obj.type === 'tool' && typeof obj.input === 'object' && obj.input !== null) {
     const input = obj.input as Record<string, unknown>;
-    if (
-      obj.name === 'check_availability' &&
-      typeof input.date === 'string' &&
-      typeof input.time === 'string' &&
-      typeof input.guests === 'number'
-    ) {
-      return { type: 'tool', name: 'check_availability', input };
+    const guests = coerceGuests(input.guests);
+    const date = coerceText(input.date);
+    const time = coerceText(input.time);
+    const confirmationCode = coerceText(input.confirmationCode);
+
+    if (obj.name === 'check_availability' && date !== undefined && time !== undefined && guests !== null) {
+      return { type: 'tool', name: 'check_availability', input: { ...input, date, time, guests } };
     }
-    if (
-      obj.name === 'book_table' &&
-      typeof input.name === 'string' &&
-      typeof input.phone === 'string' &&
-      typeof input.date === 'string' &&
-      typeof input.time === 'string' &&
-      typeof input.guests === 'number'
-    ) {
-      return { type: 'tool', name: 'book_table', input };
+    if (obj.name === 'book_table') {
+      const name = coerceText(input.name);
+      const phone = coerceText(input.phone);
+      if (name !== undefined && phone !== undefined && date !== undefined && time !== undefined && guests !== null) {
+        return { type: 'tool', name: 'book_table', input: { ...input, name, phone, date, time, guests } };
+      }
     }
-    if (obj.name === 'cancel_booking' && typeof input.confirmationCode === 'string') {
-      return { type: 'tool', name: 'cancel_booking', input };
+    if (obj.name === 'cancel_booking' && confirmationCode !== undefined) {
+      return { type: 'tool', name: 'cancel_booking', input: { ...input, confirmationCode } };
     }
-    if (
-      obj.name === 'modify_booking' &&
-      typeof input.confirmationCode === 'string' &&
-      typeof input.guests === 'number'
-    ) {
-      return { type: 'tool', name: 'modify_booking', input };
+    if (obj.name === 'modify_booking' && confirmationCode !== undefined && guests !== null) {
+      return { type: 'tool', name: 'modify_booking', input: { ...input, confirmationCode, guests } };
     }
   }
   return null;
 }
 
-/** Executes the REAL server-side function — the model's own words never stand in for a result. */
-function executeTool(action: ToolAction): Record<string, unknown> {
+/** Executes the REAL server-side function — the model's own words never stand
+ * in for a result. Async because the booking store is (Vercel KV in prod). */
+async function executeTool(action: ToolAction): Promise<Record<string, unknown>> {
   const input = action.input;
   if (action.name === 'check_availability') {
-    return checkAvailability(
+    return (await checkAvailability(
       input.date as string,
       input.time as string,
       input.guests as number,
-    ) as unknown as Record<string, unknown>;
+    )) as unknown as Record<string, unknown>;
   }
   if (action.name === 'cancel_booking') {
-    return cancelBooking(input.confirmationCode as string) as unknown as Record<string, unknown>;
+    return (await cancelBooking(input.confirmationCode as string)) as unknown as Record<string, unknown>;
   }
   if (action.name === 'modify_booking') {
-    return modifyBooking(
+    return (await modifyBooking(
       input.confirmationCode as string,
       input.guests as number,
-    ) as unknown as Record<string, unknown>;
+    )) as unknown as Record<string, unknown>;
   }
-  return bookTable(
+  return (await bookTable(
     input.name as string,
     input.phone as string,
     input.date as string,
     input.time as string,
     input.guests as number,
-  ) as unknown as Record<string, unknown>;
+  )) as unknown as Record<string, unknown>;
 }
 
 /**
@@ -284,7 +307,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     }
     toolIterations++;
 
-    const result = executeTool(action);
+    const result = await executeTool(action);
     toolCalls.push({ name: action.name, input: action.input, result });
 
     messages.push({ role: 'assistant', content: JSON.stringify(action) });
