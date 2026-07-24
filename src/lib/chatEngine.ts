@@ -1,6 +1,25 @@
 import { extractJson, hasSuspiciousToolSyntax, parseWholeJson } from './extractJson';
 import { bookTable, cancelBooking, checkAvailability, modifyBooking } from './booking';
 
+/**
+ * Turn engine for the EPISTEME AI receptionist. Deliberate architecture: NO
+ * native LLM tool-calling — a strict custom JSON protocol instead, because
+ * native tool-calling failed for this use case in practice, in three
+ * observed ways: (1) the model announcing an action ("máris ellenőrzöm…")
+ * without actually invoking it, (2) emitting the result as bare prose
+ * instead of the JSON wrapper, (3) hallucinating <function_calls> XML
+ * together with a FABRICATED confirmation code. The model only ever
+ * REQUESTS a tool via JSON; the real functions run server-side in
+ * src/lib/booking.ts, and confirmation codes are generated exclusively there.
+ *
+ * The single hardest lesson from production: llama-3.3-70b routinely emits
+ * "koszos" JSON — numbers as strings ("guests":"30"), a phone as a bare
+ * number, an occasional missing quote. Rejecting those outright caused a
+ * REAL outage: a perfectly good booking request was refused with a generic
+ * "connection lost" message and no reservation was made. So input validation
+ * here is COERCING, not merely type-checking — see coerceGuests/coerceText.
+ */
+
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 type ToolName = 'check_availability' | 'book_table' | 'cancel_booking' | 'modify_booking';
@@ -21,23 +40,19 @@ export type TurnResult = {
 export type ModelCaller = (messages: ChatMessage[], systemSuffix: string) => Promise<string>;
 
 type SayAction = { type: 'say'; message: string };
-type ToolAction = {
-  type: 'tool';
-  name: ToolName;
-  input: Record<string, unknown>;
-};
+type ToolAction = { type: 'tool'; name: ToolName; input: Record<string, unknown> };
 
 const MAX_TOOL_ITERATIONS = 4;
 const MAX_MODEL_CALLS = 8;
 /** How many times we force a re-prompt when the model announces a check but
- * fails to emit the tool call, before degrading gracefully. */
+ * never actually emits the tool call, before degrading gracefully. */
 const MAX_STALL_RETRIES = 2;
 
 const PROTOCOL_REMINDER =
   '\n\nSTRICT REMINDER: your previous reply violated the response protocol. You MUST respond with EXACTLY ONE JSON object of shape {"type":"say","message":"..."} or {"type":"tool","name":"...","input":{...}} — no prose, no markdown fences, no XML, no invented tool results.';
 
 const STALL_REMINDER =
-  '\n\nSTRICT REMINDER: You have enough information. You must now emit a check_availability tool call ({"type":"tool","name":"check_availability",...}), not another message. Never announce an action in prose — perform it by emitting the tool-call JSON.';
+  '\n\nSTRICT REMINDER: You have enough information. You must now emit the tool call ({"type":"tool","name":"check_availability",...} or the appropriate tool), not another message. Never announce an action in prose — perform it by emitting the tool-call JSON. Wait for the real [RENDSZER] result before saying anything concrete.';
 
 /**
  * Distinguishes a stalled action ANNOUNCEMENT ("let me check…", "máris
@@ -64,9 +79,10 @@ export function detectLang(text: string): 'hu' | 'en' | 'es' {
 }
 
 // Graceful, HUMAN fallback for when the model backend is unreachable, rate-
-// limited or misbehaving. It NEVER invents availability, a seat count or a
-// code — it simply apologises and points to a real contact. Better a candid
-// "please try again / reach us here" than a fabricated confirmation.
+// limited, or the model's output is too broken to trust (even after
+// coercion + retries). It NEVER invents availability, a seat count or a
+// code — it apologises and points to a real contact. A candid "please try
+// again / reach us here" beats a fabricated confirmation every time.
 const FALLBACK: Record<'hu' | 'en' | 'es', string> = {
   hu: 'Elnézését kérem, egy pillanatra megszakadt a kapcsolat a foglalási rendszerünkkel. Kérem, próbálja meg ismét néhány pillanat múlva — ha sürgős, munkatársaink a bizniszpappa@gmail.com címen készséggel állnak rendelkezésére.',
   en: 'My apologies — our reservation system is momentarily unavailable. Please try again in a few moments; if it is urgent, our team will gladly assist you at bizniszpappa@gmail.com.',
@@ -78,15 +94,15 @@ export function fallbackMessage(history: ChatMessage[]): string {
   return FALLBACK[detectLang(lastUser?.content ?? '')];
 }
 
-/**
- * Coerces a guest count that the model may (and llama-3.3-70b often does) emit
- * as a STRING ("30") or a float (30.0) into a positive integer — returns null
- * only when it is genuinely not a number. Being strict here was a real
- * production bug: a valid book_table with "guests":"30" was rejected as a
- * protocol violation and the guest saw the connection-lost fallback instead of
- * a confirmation. (The Retell voice route already coerced; the chat engine now
- * matches it.)
- */
+// ---------------------------------------------------------------------------
+// Coercion — the model's common type quirks are FIXED UP, not rejected. The
+// booking engine still performs the real value validation (name length,
+// phone digits, capacity, opening hours, past-date); this layer only makes
+// sure a well-intentioned but loosely-typed tool call reaches it at all.
+// ---------------------------------------------------------------------------
+
+/** A guest count as a number, a numeric string ("30"), or a float (30.0) →
+ * a positive integer. Returns null only when it is genuinely not a number. */
 function coerceGuests(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
   if (typeof value === 'string' && value.trim() !== '') {
@@ -96,18 +112,20 @@ function coerceGuests(value: unknown): number | null {
   return null;
 }
 
-/** A required text field: accept a string, or a number the model sent unquoted
- * (e.g. a phone number as JSON number) by stringifying it. undefined otherwise. */
+/** A required text field: a string as-is, or a number the model sent
+ * unquoted (e.g. a phone number as a JSON number) stringified. */
 function coerceText(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   return undefined;
 }
 
-/** Validates a parsed object against the allowed protocol shapes, tolerating
- * the model's common type quirks (numbers as strings, phone as a number) by
- * coercing rather than rejecting — the downstream booking engine does the real
- * value validation. */
+/**
+ * Validates a parsed object against the allowed protocol shapes, coercing
+ * the model's common type quirks along the way. Returns null when the shape
+ * is unrecognisable even after coercion — i.e. truly malformed, not just
+ * loosely typed.
+ */
 function asValidAction(parsed: unknown): SayAction | ToolAction | null {
   if (!parsed || typeof parsed !== 'object') return null;
   const obj = parsed as Record<string, unknown>;
@@ -143,40 +161,47 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
   return null;
 }
 
-/** Executes the REAL server-side function — the model's own words never stand
- * in for a result. Async because the booking store is (Vercel KV in prod). */
-async function executeTool(action: ToolAction): Promise<Record<string, unknown>> {
+/**
+ * Executes the REAL server-side function — the model's own words never
+ * stand in for a result. Every call is logged (input AND output) so a real
+ * conversation's failure point is always visible in the server log, tied
+ * together by the confirmation code or date/guests for correlation.
+ */
+function executeTool(action: ToolAction): Record<string, unknown> {
   const input = action.input;
+  let result: Record<string, unknown>;
+
   if (action.name === 'check_availability') {
-    return (await checkAvailability(
+    result = checkAvailability(input.date as string, input.time as string, input.guests as number) as unknown as Record<string, unknown>;
+  } else if (action.name === 'cancel_booking') {
+    result = cancelBooking(input.confirmationCode as string) as unknown as Record<string, unknown>;
+  } else if (action.name === 'modify_booking') {
+    result = modifyBooking(input.confirmationCode as string, input.guests as number) as unknown as Record<string, unknown>;
+  } else {
+    result = bookTable(
+      input.name as string,
+      input.phone as string,
       input.date as string,
       input.time as string,
       input.guests as number,
-    )) as unknown as Record<string, unknown>;
+    ) as unknown as Record<string, unknown>;
   }
-  if (action.name === 'cancel_booking') {
-    return (await cancelBooking(input.confirmationCode as string)) as unknown as Record<string, unknown>;
-  }
-  if (action.name === 'modify_booking') {
-    return (await modifyBooking(
-      input.confirmationCode as string,
-      input.guests as number,
-    )) as unknown as Record<string, unknown>;
-  }
-  return (await bookTable(
-    input.name as string,
-    input.phone as string,
-    input.date as string,
-    input.time as string,
-    input.guests as number,
-  )) as unknown as Record<string, unknown>;
+
+  console.log('[CHAT_TOOL]', JSON.stringify({ ts: new Date().toISOString(), name: action.name, input, result }));
+  return result;
 }
 
 /**
  * Runs one guest turn: calls the model, executes any tool requests against
- * the real booking engine, feeds real results back, and loops until the model
- * produces a `say` — with a retry-once safety net for protocol violations
- * (including hallucinated XML tool syntax) and hard caps against infinite loops.
+ * the real booking engine, feeds real results back, and loops until the
+ * model produces a `say` — with:
+ *  - a retry-once safety net for protocol violations (including hallucinated
+ *    XML tool syntax or a fabricated code — never surfaced to the guest);
+ *  - a forced-retry safety net when the model ANNOUNCES a check/action
+ *    without invoking it, so the guest is never told a number the engine
+ *    never actually looked up;
+ *  - hard caps against infinite loops, always degrading to a graceful,
+ *    human, guest-language fallback rather than hanging or hallucinating.
  */
 export async function runTurn(history: ChatMessage[], callModel: ModelCaller): Promise<TurnResult> {
   const messages: ChatMessage[] = [...history];
@@ -190,10 +215,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   while (modelCalls < MAX_MODEL_CALLS) {
     let raw: string;
     try {
-      raw = await callModel(
-        messages,
-        forceStallReminder ? STALL_REMINDER : retriedProtocol ? PROTOCOL_REMINDER : '',
-      );
+      raw = await callModel(messages, forceStallReminder ? STALL_REMINDER : retriedProtocol ? PROTOCOL_REMINDER : '');
       modelCalls++;
       forceStallReminder = false;
     } catch (err) {
@@ -204,12 +226,12 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     const action = asValidAction(extractJson(raw));
 
     // Safety net: a protocol violation is (a) anything that does not parse
-    // into a valid say/tool action, or (b) hallucinated tool-call syntax
-    // (<function_calls>, <invoke, <tool_use, function_results, stray "tool":)
-    // present while the WHOLE response is not one clean protocol object —
-    // i.e. a salvaged JSON fragment surrounded by fake invocation text is
-    // NOT trusted. Never surface such output to the guest as a real result:
-    // retry once with a strict reminder, then fall back gracefully.
+    // into a valid say/tool action even after coercion, or (b) hallucinated
+    // tool-call syntax (<function_calls>, <invoke, <tool_use, function_results,
+    // stray "tool":) present while the WHOLE response is not one clean
+    // protocol object — i.e. a salvaged JSON fragment surrounded by fake
+    // invocation text is NOT trusted. Never surface such output to the guest
+    // as a real result: retry once with a strict reminder, then fall back.
     const wholeIsClean = asValidAction(parseWholeJson(raw)) !== null;
     if (!action || (hasSuspiciousToolSyntax(raw) && !wholeIsClean)) {
       // Auto-wrap recovery: if the model expressed a legitimate conversational
@@ -217,10 +239,10 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       // capacity" answer sent without the JSON wrapper), recover it as a
       // {"type":"say"} instead of discarding it. STRICTLY limited to text
       // with zero signs of fabricated structured data — no braces at all, no
-      // fake tool-call syntax, no tool names, and no EP-code-like pattern
-      // (a code may only ever reach the guest via a real book_table result
-      // relayed in valid JSON). Anything tool-shaped keeps the existing
-      // strict retry-then-fallback path untouched.
+      // fake tool-call syntax, no tool names, and no EP-code-like pattern (a
+      // code may only ever reach the guest via a real book_table/modify_booking
+      // result relayed in valid JSON). Anything tool-shaped keeps the
+      // existing strict retry-then-fallback path untouched.
       const trimmed = raw.trim();
       const cleanProse =
         !action &&
@@ -229,7 +251,8 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         !trimmed.includes('}') &&
         !hasSuspiciousToolSyntax(raw) &&
         !/EP[\s_-]*\d/i.test(trimmed) &&
-        !/check_availability|book_table/i.test(trimmed);
+        !/check_availability|book_table|cancel_booking|modify_booking/i.test(trimmed);
+
       if (cleanProse) {
         // Announced intent ("let me check…") must NOT be auto-wrapped — that
         // would return the stall to the guest. Force the tool call instead;
@@ -239,24 +262,18 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
             stallRetries++;
             forceStallReminder = true;
             console.error(
-              `[GROQ_ERROR] Stalled availability-check announcement without tool call (force-tool retry ${stallRetries}/${MAX_STALL_RETRIES}); raw output:`,
+              `[GROQ_ERROR] Stalled action announcement without tool call (force-tool retry ${stallRetries}/${MAX_STALL_RETRIES}); raw output:`,
               trimmed.slice(0, 200),
             );
             continue;
           }
-          // Model kept announcing a check but never emitted the tool call.
-          // Returning "let me check…" would leave the guest hanging (and could
-          // smuggle a hallucinated number) — degrade gracefully instead.
           console.error(
-            '[GROQ_ERROR] Model kept announcing an availability check without emitting the tool call after retries; graceful fallback; raw output:',
+            '[GROQ_ERROR] Model kept announcing an action without emitting the tool call after retries; graceful fallback; raw output:',
             trimmed.slice(0, 200),
           );
           return { message: fallbackMessage(history), toolCalls, error: true };
         }
-        console.error(
-          '[GROQ_ERROR] Recovered plain-text say response via auto-wrap; raw output:',
-          trimmed.slice(0, 300),
-        );
+        console.error('[GROQ_ERROR] Recovered plain-text say response via auto-wrap; raw output:', trimmed.slice(0, 300));
         return { message: trimmed, toolCalls };
       }
 
@@ -276,24 +293,23 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       // Structural stall net: a valid say that merely ANNOUNCES checking
       // ("máris ellenőrzöm…") before any tool has run this turn would leave
       // the guest hanging — re-prompt once with an explicit order to emit
-      // the tool call. After one forced retry the say is returned as-is to
-      // avoid loops. Post-tool says are never touched (past-tense
-      // "ellenőriztem" delivering results is legitimate there).
+      // the tool call. After the retry budget is spent, degrade gracefully
+      // rather than ever return the dangling announcement (or let a later
+      // reply quote a number the engine never actually looked up). Post-tool
+      // says are never touched (past-tense "ellenőriztem" delivering results
+      // is legitimate there).
       if (toolIterations === 0 && isActionAnnouncement(action.message)) {
         if (stallRetries < MAX_STALL_RETRIES) {
           stallRetries++;
           forceStallReminder = true;
           console.error(
-            `[GROQ_ERROR] Stalled availability-check announcement without tool call (force-tool retry ${stallRetries}/${MAX_STALL_RETRIES}); message:`,
+            `[GROQ_ERROR] Stalled action announcement without tool call (force-tool retry ${stallRetries}/${MAX_STALL_RETRIES}); message:`,
             action.message.slice(0, 200),
           );
           continue;
         }
-        // Exhausted retries with only an announcement and no tool call — never
-        // return the dangling "máris ellenőrzöm" (or a number it never looked
-        // up) to the guest; degrade gracefully.
         console.error(
-          '[GROQ_ERROR] Model kept announcing an availability check without emitting the tool call after retries; graceful fallback; message:',
+          '[GROQ_ERROR] Model kept announcing an action without emitting the tool call after retries; graceful fallback; message:',
           action.message.slice(0, 200),
         );
         return { message: fallbackMessage(history), toolCalls, error: true };
@@ -307,15 +323,13 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     }
     toolIterations++;
 
-    const result = await executeTool(action);
+    const result = executeTool(action);
     toolCalls.push({ name: action.name, input: action.input, result });
 
     messages.push({ role: 'assistant', content: JSON.stringify(action) });
-    messages.push({
-      role: 'user',
-      content: `[RENDSZER] eszköz eredménye: ${JSON.stringify(result)}`,
-    });
+    messages.push({ role: 'user', content: `[RENDSZER] eszköz eredménye: ${JSON.stringify(result)}` });
   }
 
+  console.error(`[GROQ_ERROR] model-call cap (${MAX_MODEL_CALLS}) exceeded in one turn; returning graceful fallback`);
   return { message: fallbackMessage(history), toolCalls, error: true };
 }
