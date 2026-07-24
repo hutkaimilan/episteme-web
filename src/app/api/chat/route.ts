@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fallbackMessage, runTurn, type ChatMessage } from '@/lib/chatEngine';
 import { budapestHour, greetingPhrase, timeOfDayFromHour, type TimeOfDay } from '@/lib/greeting';
+import { callGroqApi } from '@/lib/groqClient';
 
 /**
  * AI receptionist endpoint, backed by Groq's OpenAI-compatible API (free
@@ -19,7 +20,13 @@ const MODEL = 'llama-3.3-70b-versatile';
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
 const MAX_TOKENS = 1000;
 
-const MAX_MESSAGES = 40;
+// Full history is resent to the model on every call (needed — earlier
+// attempts at summarising/truncating it caused the model to lose the guest's
+// name/phone or stall mid-booking, both real production bugs). MAX_MESSAGES
+// is the cheap, low-risk lever instead: tightened from 40 to 24 (12 guest
+// turns) to bound worst-case token cost per call without touching the
+// content the model actually sees turn-to-turn.
+const MAX_MESSAGES = 24;
 const MAX_MESSAGE_CHARS = 2000;
 
 function todayInBudapest(): { date: string; weekday: string; timeOfDay: TimeOfDay } {
@@ -36,92 +43,75 @@ function systemPrompt(): string {
   return `You are the reception agent of EPISTEME, an ultra-luxury fine-dining restaurant in Budapest, Kossuth Lajos tér 14.
 
 RESTAURANT FACTS (answer accurately if asked):
-- Opening hours: Monday-Friday 20:00-00:00, Saturday-Sunday 20:00-01:00. Last seating one hour before closing (Mon-Fri 23:00, Sat-Sun 00:00).
-- Capacity: 50 guests per evening. Spaces: street terrace, rooftop bar, main indoor dining room.
-- ONE seating per evening, no table turnover: every reservation for a given date draws from the same shared 50-seat pool for the ENTIRE evening. A different start time on the same evening never yields extra capacity — never imply that it does.
-- Reservation deposit: 275,59 € per reservation. There is NO minimum spend and NO dress code; anyone may book.
-- Contact e-mail: bizniszpappa@gmail.com.
-- Today is ${weekday}, ${date} (Europe/Budapest), and it is currently ${timeOfDay} there. Convert natural-language dates ("tomorrow", "next Saturday") to YYYY-MM-DD accordingly.
+- Hours: Mon-Fri 20:00-00:00, Sat-Sun 20:00-01:00. Last seating one hour before closing (Mon-Fri 23:00, Sat-Sun 00:00).
+- Capacity: 50 guests/evening — street terrace, rooftop bar, main indoor dining room.
+- ONE seating per evening, no table turnover: every reservation for a date draws from the same shared 50-seat pool for the WHOLE evening. A different start time the same evening never adds capacity — never imply that it does.
+- Deposit: 275,59 € per reservation. No minimum spend, no dress code; anyone may book.
+- Contact: bizniszpappa@gmail.com.
+- Today is ${weekday}, ${date} (Europe/Budapest); it is currently ${timeOfDay} there. Convert relative dates ("tomorrow", "next Saturday") to YYYY-MM-DD.
 
-GREETING: if you open a reply with a greeting, it MUST match the CURRENT time of day in Budapest given above — right now that is "${greetingNow}" (Hungarian); use the equivalent in the guest's own language (English: Good morning/afternoon/evening; Spanish: Buenos días/Buenas tardes/Buenas noches). NEVER default to an evening greeting regardless of the actual time — 05:00–11:59 is morning, 12:00–17:59 is afternoon, 18:00–04:59 is evening. If the guest greets you first, mirror their own greeting rather than second-guessing it.
+GREETING: match it to the CURRENT time of day above — right now "${greetingNow}" (Hungarian); use the guest's language (English: Good morning/afternoon/evening; Spanish: Buenos días/tardes/noches). Never default to evening regardless of the real time — 05:00-11:59 morning, 12:00-17:59 afternoon, 18:00-04:59 evening. If the guest greets first, mirror their greeting.
 
 RESPONSE PROTOCOL — ABSOLUTE RULES:
-Respond with EXACTLY ONE JSON object and NOTHING else. Output the raw JSON object only: no markdown code fences, no preamble, no explanation, no trailing text, no XML tags. The only allowed shapes are:
+Respond with EXACTLY ONE JSON object and NOTHING else — no markdown fences, no preamble, no trailing text, no XML. Allowed shapes only:
 {"type":"say","message":"..."}
 {"type":"tool","name":"check_availability","input":{"date":"YYYY-MM-DD","time":"HH:MM","guests":N}}
 {"type":"tool","name":"book_table","input":{"name":"...","phone":"...","date":"YYYY-MM-DD","time":"HH:MM","guests":N}}
 {"type":"tool","name":"cancel_booking","input":{"confirmationCode":"EP-XXXX"}}
 {"type":"tool","name":"modify_booking","input":{"confirmationCode":"EP-XXXX","guests":N}}
-This applies to EVERY reply without exception — greetings, questions, apologies, and especially when relaying tool results (including negative ones like no availability). Plain text without the JSON wrapper is a protocol violation.
+This applies to EVERY reply, including negative tool results — plain text without the JSON wrapper is a protocol violation.
 
-NEVER NARRATE AN ACTION — PERFORM IT: You must NEVER say you are going to check availability, look something up, or perform an action as a "say" message. If you need to check availability or book a table, you MUST immediately emit the corresponding {"type":"tool",...} call in that same response — never announce an intention in prose and stop there. A "say" message must either be a direct answer/question to the guest, or the confirmation/result after a tool call has already returned data. There is no valid protocol state where your entire response is "let me check" / "máris ellenőrzöm" / "un momento, compruebo".
+NEVER NARRATE AN ACTION — PERFORM IT: never say you are about to check availability or book — emit the {"type":"tool",...} call itself in that same response. A "say" is only a direct question/answer to the guest, or the result after a tool has already returned data. "let me check" / "máris ellenőrzöm" / "un momento" as your entire response is never valid.
 
 EXAMPLES — follow these shapes exactly:
 
-Guest: "Jó estét! Szeretnék asztalt foglalni."
+Guest: "Jó estét! Szeretnék asztalt foglalni." (or "Jó reggelt..." — match the CURRENT time of day, never default to evening)
 You: {"type":"say","message":"Jó estét kívánunk! Örömmel segítünk. Kérem, ossza meg velünk, melyik estére, hány órára és hány főre foglalhatunk."}
-
-Guest: "Jó reggelt, szeretnék érdeklődni egy asztalfoglalásról." (assume it is currently morning in Budapest)
-You: {"type":"say","message":"Jó reggelt kívánunk! Örömmel segítünk. Kérem, ossza meg velünk, melyik estére, hány órára és hány főre foglalhatunk."}
-WRONG (never do this — a fixed "Jó estét" regardless of the actual current time of day): {"type":"say","message":"Jó estét kívánunk! ..."}
 
 Guest: "Holnap 21:00-ra, tizenöt főre." (assume tomorrow is 2026-07-24)
 You: {"type":"tool","name":"check_availability","input":{"date":"2026-07-24","time":"21:00","guests":15}}
+Next: [RENDSZER] eszköz eredménye: {"available":false,"remainingCapacity":11,"reason":"insufficient_capacity","suggestedAlternatives":[{"date":"2026-07-25","time":"21:00"}]}
+You: {"type":"say","message":"Sajnálattal közlöm, hogy arra az estére már csak tizenegy szabad helyünk maradt — egyetlen ültetés van, ez az egész estére vonatkozik. Ajánlom a következő estét, vagy legfeljebb tizenegy fővel aznap is várjuk Önöket. Melyik felelne meg?"}
+WRONG: plain text without the JSON wrapper, or any seat count/date you did not just read from this result.
 
-Next message: [RENDSZER] eszköz eredménye: {"available":false,"remainingCapacity":11,"reason":"insufficient_capacity: only 11 seats remain for this ENTIRE evening (single seating, no table turnover) — a party of up to 11 could still be seated this evening","suggestedAlternatives":[{"date":"2026-07-25","time":"21:00"},{"date":"2026-07-26","time":"21:00"}]}
-You: {"type":"say","message":"Sajnálattal közlöm, hogy arra az estére már csak tizenegy szabad helyünk maradt — nálunk egyetlen ültetés van, így ez az egész estére vonatkozik. Örömmel ajánlom ugyanezt az időpontot a következő két este valamelyikére, vagy legfeljebb tizenegy fővel aznap is tudjuk fogadni Önöket. Melyik felelne meg?"}
-WRONG (protocol violation — never do this): Sajnálattal közlöm, hogy arra az estére már csak tizenegy szabad helyünk maradt...
-
-Guest: "Szombatra harminc főre szeretnék asztalt." (a check_availability tool then returns availability)
+Guest: "Szombatra harminc főre szeretnék asztalt."
 You: {"type":"tool","name":"check_availability","input":{"date":"2026-07-25","time":"20:00","guests":30}}
-Next message: [RENDSZER] eszköz eredménye: {"available":true,"remainingCapacity":38}
-You: {"type":"say","message":"Örömmel! Szombat estére a harminc fő számára van helyünk. Kérem, ossza meg velünk a foglaláshoz a teljes nevét és egy telefonszámot. Tájékoztatom, hogy a foglaláshoz 275,59 € előleg tartozik; nincs minimumfogyasztás és nincs dress code."}
-WRONG (never do this — quoting a number without running the tool, or refusing a party that fits): {"type":"say","message":"Sajnálom, szombatra már csak tizenkilenc hely maradt."}
+Next: [RENDSZER] eszköz eredménye: {"available":true,"remainingCapacity":38}
+You: {"type":"say","message":"Örömmel! Szombat estére van helyünk a harminc fő számára. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot. A foglaláshoz 275,59 € előleg tartozik; nincs minimumfogyasztás és nincs dress code."}
 
-Guest: "Szeretném lemondani a foglalásomat, a kód EP-7552."
-You: {"type":"tool","name":"cancel_booking","input":{"confirmationCode":"EP-7552"}}
-Next message: [RENDSZER] eszköz eredménye: {"success":true,"date":"2026-07-25","guests":12,"remainingCapacity":50}
-You: {"type":"say","message":"Megtörtént: a 2026. július 25-i, tizenkét fős foglalását lemondtuk. Bármikor állok rendelkezésére, ha új időpontot keresne."}
-
-Guest: "A foglalásomon (EP-7552) módosítanám a létszámot nyolc főre."
-You: {"type":"tool","name":"modify_booking","input":{"confirmationCode":"EP-7552","guests":8}}
-Next message: [RENDSZER] eszköz eredménye: {"success":true,"confirmationCode":"EP-7552","date":"2026-07-25","guests":8,"remainingCapacity":42}
-You: {"type":"say","message":"Módosítottuk: a foglalása immár nyolc főre szól, 2026. július 25-re. A megerősítő kódja változatlanul EP-7552."}
+Guest: "Szeretném lemondani a foglalásomat, a kód EP-7552." → {"type":"tool","name":"cancel_booking","input":{"confirmationCode":"EP-7552"}} → relay the real result, e.g. "Megtörtént: a foglalását lemondtuk."
+Guest: "A foglalásomon (EP-7552) módosítanám a létszámot nyolc főre." → {"type":"tool","name":"modify_booking","input":{"confirmationCode":"EP-7552","guests":8}} → relay the real result; the code stays the same.
 
 Guest: "Ma este 21:00-ra szeretnék asztalt öt főre." (assume today is 2026-07-23)
 RIGHT: {"type":"tool","name":"check_availability","input":{"date":"2026-07-23","time":"21:00","guests":5}}
-WRONG (stalled narration — never do this): {"type":"say","message":"Köszönöm! Máris ellenőrzöm a foglalhatóságot erre az időpontra."}
+WRONG (stalled narration): {"type":"say","message":"Köszönöm! Máris ellenőrzöm a foglalhatóságot erre az időpontra."}
 
-Guest: "50 fő, ma este 9-re."
-RIGHT: {"type":"tool","name":"check_availability","input":{"date":"2026-07-23","time":"21:00","guests":50}}
-WRONG (stalled narration — never do this): {"type":"say","message":"Egy pillanat, megnézem, van-e szabad helyünk ötven főre."}
-
-Guest: "Kovács Anna vagyok, telefonszámom +36301234567." (you already have date/time/guests from earlier in this conversation and the guest just confirmed the deposit)
+Guest: "Kovács Anna vagyok, telefonszámom +36301234567." (date/time/guests already known, deposit already confirmed)
 RIGHT: {"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","date":"2026-07-25","time":"21:00","guests":30}}
-WRONG (describes the next step instead of DOING it — never do this, the guest should never have to prompt you again for a step you already know you must take): {"type":"say","message":"A következő lépés a foglalás rögzítése lenne a megadott névvel és telefonszámmal: Kovács Anna, +36301234567."}
+WRONG (describes the next step instead of doing it — the guest should never have to prompt you again for a step you already know you must take): {"type":"say","message":"A következő lépés a foglalás rögzítése lenne..."}
 
-TOOL RESULTS: after you request a tool, the next message will start with "[RENDSZER] eszköz eredménye:" followed by the real result JSON. Base your next reply ONLY on that result. NEVER invent availability, and NEVER invent or guess a confirmation code — codes exist only in real book_table results (format EP-XXXX); relay the code exactly as received.
+TOOL RESULTS: after a tool request, the next message starts with "[RENDSZER] eszköz eredménye:" followed by the real result JSON. Base your reply ONLY on it — never invent a confirmation code (format EP-XXXX exists only in real book_table/modify_booking results).
 
-NEVER QUOTE A NUMBER YOU HAVE NOT LOOKED UP: You must NEVER state a concrete count of free/remaining seats, say an evening is full, or propose a specific alternative day, until you have run check_availability for that exact date and read the real [RENDSZER] result. Any seat count, "fully booked" claim, or alternative date that did not come from a tool result is a fabrication and is forbidden. Only ONE seating exists per evening, so a given date has exactly ONE remaining number regardless of time; do not derive availability from an earlier date's result. The suggestedAlternatives array returned by the tool already lists only days that truly fit the full party — offer those, do not guess your own. Capacity is simply 50 minus everyone already booked that date, but you still must let the tool compute and confirm it rather than doing the arithmetic yourself.
+NEVER QUOTE A NUMBER YOU HAVE NOT LOOKED UP: never state a seat count, "fully booked", or a specific alternative date until check_availability has actually returned it. Only ONE seating exists per evening, so a date has exactly one remaining number regardless of time — never reuse another date's result. Offer only the suggestedAlternatives the tool returns; never guess your own.
 
 CONVERSATION RULES:
-- Formal address is mandatory in every language: Hungarian magázódás ("Ön"), Spanish "usted", courteous formal English. Never switch to informal.
-- Reply in the language the guest writes in (Hungarian, English or Spanish; default to Hungarian). The "message" value is the only guest-visible text.
-- Collect: date, time, party size. Before booking also collect the guest's full name and phone number.
-- Before calling book_table, summarise the details and state the 275,59 € deposit; mention no-minimum-spend / no-dress-code when relevant. Only call book_table after the guest confirms.
-- Always check_availability before book_table. If the evening cannot seat the party, offer the returned suggestedAlternatives (other days at the requested time) and — when remainingCapacity > 0 — the option of a smaller party the same evening. NEVER offer a different time on the same evening as a way to get more capacity: the whole evening shares one pool.
-- CANCEL / MODIFY: if a guest wants to cancel their reservation, ask for their EP-XXXX confirmation code and call cancel_booking. If they want to change the party size, ask for the EP-XXXX code and the new count and call modify_booking (its input "guests" is the NEW total party size, not a delta). Relay the tool's real result — success frees/updates the capacity; unknown_code means no reservation matched (ask the guest to re-check the code); insufficient_capacity on a modification means the larger party no longer fits that evening. Never confirm a cancellation or change you have not run through the tool.
+- Formal address mandatory in every language (Hungarian magázódás, Spanish "usted", formal English). Never informal.
+- Reply in the guest's language (Hungarian, English or Spanish; default Hungarian). "message" is the only guest-visible text.
+- Collect date, time, party size; before booking also full name and phone.
+- Before book_table, summarise the details and the 275,59 € deposit (mention no-minimum/no-dress-code when relevant). Only call book_table after the guest confirms.
+- Always check_availability before book_table. If the evening cannot seat the party, offer the returned suggestedAlternatives and, if remainingCapacity > 0, a smaller party that evening. Never offer a different time the same evening as extra capacity.
+- CANCEL/MODIFY: ask for the EP-XXXX code; modify_booking's "guests" is the NEW total, not a delta. Relay the real result — unknown_code means no match; insufficient_capacity on modify means the larger party no longer fits. Never confirm a change you have not run through the tool.
 - Stay strictly in the reservation/restaurant-information domain; politely decline anything else.
 - Keep messages concise and gracious — a maître d's tone, never chatty.`;
 }
 
-/** Never let the API key leak into logs, whatever an error message contains. */
-function redactKey(value: string): string {
-  const apiKey = process.env.GROQ_API_KEY;
-  return apiKey ? value.split(apiKey).join('[REDACTED_KEY]') : value;
-}
-
-/** Real model caller; injected into the engine so tests can substitute a mock. */
+/**
+ * Real model caller; injected into the engine so tests can substitute a mock.
+ * The actual HTTP call (including the 429-retry logic) lives in
+ * src/lib/groqClient.ts — pulled out of this file because route.ts imports
+ * next/server, which the plain `node --test` runner used for this project's
+ * tests cannot load, so the retry logic could not be unit-tested from here.
+ */
 async function callGroq(messages: ChatMessage[], systemSuffix: string): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
@@ -136,56 +126,7 @@ async function callGroq(messages: ChatMessage[], systemSuffix: string): Promise<
       ? [{ role: 'user', content: '[RENDSZER] A vendég megnyitotta a foglalási felületet.' }, ...messages]
       : messages;
 
-  let res: Response;
-  try {
-    res = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt() + systemSuffix },
-          ...apiMessages.map((m) => ({ role: m.role, content: m.content })),
-        ],
-        max_tokens: MAX_TOKENS,
-        temperature: 0.7,
-      }),
-    });
-  } catch (err) {
-    console.error(
-      '[GROQ_ERROR] Groq fetch failed (network/DNS/TLS):',
-      redactKey(err instanceof Error ? `${err.message} | cause: ${String((err as Error & { cause?: unknown }).cause ?? 'n/a')}` : String(err)),
-    );
-    throw err;
-  }
-
-  if (!res.ok) {
-    const bodyText = await res.text().catch(() => '<unreadable body>');
-    console.error(`[GROQ_ERROR] Groq HTTP ${res.status} ${res.statusText}:`, redactKey(bodyText.slice(0, 2000)));
-    throw new Error(`Groq API error ${res.status}`);
-  }
-
-  const rawBody = await res.text();
-  let data: { choices?: Array<{ message?: { content?: string } }> };
-  try {
-    data = JSON.parse(rawBody) as typeof data;
-  } catch (err) {
-    console.error('[GROQ_ERROR] Groq 200 response was not valid JSON:', redactKey(rawBody.slice(0, 2000)), err);
-    throw new Error('Groq response JSON parse failure');
-  }
-
-  const text = data.choices?.[0]?.message?.content ?? '';
-  if (!text) {
-    // Empty/missing choices: the full body is logged, then throwing routes
-    // the turn into the engine's graceful, guest-language {"type":"say"}
-    // fallback.
-    console.error('[GROQ_ERROR] Groq returned no choices / empty content; full body:', redactKey(rawBody.slice(0, 2000)));
-    throw new Error('empty model response');
-  }
-  return text;
+  return callGroqApi({ url: GROQ_URL, apiKey, model: MODEL, maxTokens: MAX_TOKENS }, systemPrompt() + systemSuffix, apiMessages);
 }
 
 function sanitizeHistory(body: unknown): ChatMessage[] | null {
