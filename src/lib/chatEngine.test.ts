@@ -78,8 +78,8 @@ async function runConfirmationRound(
   return { round1, round2, round2Model };
 }
 
-beforeEach(() => {
-  resetBookings();
+beforeEach(async () => {
+  await resetBookings();
 });
 
 // ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ test('detectLang picks the guest language for the fallback', () => {
 // ---------------------------------------------------------------------------
 test('announced "let me check" forces the real check_availability tool before answering', async () => {
   const date = nextDow(6);
-  bookTable('Existing', '+36301234567', date, '20:00', 12); // 38 free
+  await bookTable('Existing', '+36301234567', date, '20:00', 12); // 38 free
 
   const model = scriptedModel([
     '{"type":"say","message":"Máris ellenőrzöm, egy pillanat türelmét."}',
@@ -152,7 +152,7 @@ test('announced "let me check" forces the real check_availability tool before an
 // ---------------------------------------------------------------------------
 test('12 booked + 30 requested same date: agent confirms availability (not "19 left, other day")', async () => {
   const date = nextDow(6);
-  bookTable('Existing', '+36301234567', date, '20:00', 12);
+  await bookTable('Existing', '+36301234567', date, '20:00', 12);
 
   const model = scriptedModel([
     `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"21:00","guests":30}}`,
@@ -244,7 +244,7 @@ test('a post-tool past-tense reply is returned, not mistaken for a stall', async
 // ---------------------------------------------------------------------------
 test('agent cancel_booking runs the real cancellation and frees capacity', async () => {
   const date = daysFromToday(10);
-  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 20);
   const code = booked.confirmationCode!;
 
   const model = scriptedModel([
@@ -261,7 +261,7 @@ test('agent cancel_booking runs the real cancellation and frees capacity', async
 
 test('agent modify_booking runs the real modification (party size reduced)', async () => {
   const date = daysFromToday(11);
-  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 20);
   const code = booked.confirmationCode!;
 
   const model = scriptedModel([
@@ -340,7 +340,7 @@ test('check_availability with guests as a string and a numeric phone are coerced
 
 test('modify_booking with guests as a string is coerced and executed', async () => {
   const date = daysFromToday(11);
-  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 20);
   const code = booked.confirmationCode!;
   const model = scriptedModel([
     `{"type":"tool","name":"modify_booking","input":{"confirmationCode":"${code}","guests":"8"}}`,

@@ -86,8 +86,9 @@ longer fits returns `insufficient_capacity`. Both are wired as agent tools
 
 ## Storage layer (`src/lib/kv.ts`)
 
-Persistence lives behind the `store` abstraction, with two interchangeable
-backends chosen by environment:
+`booking.ts` performs every read and write through the `store` abstraction —
+it holds no module-local state of its own. Two interchangeable backends are
+chosen by environment:
 
 - **Vercel KV (Redis/Upstash)** when `KV_REST_API_URL` + `KV_REST_API_TOKEN`
   are set — the production path. State is shared across serverless instances,

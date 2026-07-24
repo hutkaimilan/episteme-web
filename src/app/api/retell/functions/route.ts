@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   }
 
   if (name === 'check_availability') {
-    const result = checkAvailability(
+    const result = await checkAvailability(
       String(args.date ?? ''),
       String(args.time ?? ''),
       coerceGuests(args.guests),
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   }
 
   if (name === 'book_table') {
-    const result = bookTable(
+    const result = await bookTable(
       String(args.name ?? ''),
       String(args.phone ?? ''),
       String(args.date ?? ''),

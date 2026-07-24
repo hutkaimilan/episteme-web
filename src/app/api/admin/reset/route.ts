@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   const blocked = guard(request);
   if (blocked) return blocked;
 
-  const result = resetBookings();
+  const result = await resetBookings();
   console.log('[ADMIN_DEBUG] reset', JSON.stringify(result));
   return NextResponse.json({ ok: true, ...result });
 }
@@ -52,5 +52,5 @@ export async function GET(request: Request) {
   const blocked = guard(request);
   if (blocked) return blocked;
 
-  return NextResponse.json({ ok: true, snapshot: bookingSnapshot() });
+  return NextResponse.json({ ok: true, snapshot: await bookingSnapshot() });
 }
