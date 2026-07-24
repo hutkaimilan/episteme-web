@@ -121,6 +121,31 @@ function coerceText(value: unknown): string | undefined {
 }
 
 /**
+ * Recovers a tool call's `input` as a proper object even when the model
+ * double-encoded it as a JSON STRING instead of a nested object — e.g.
+ * `"input":"{\"name\":\"...\"}"` rather than `"input":{"name":"..."}`. A real
+ * llama-3.3-70b quirk, observed more often deeper into a conversation (the
+ * confirmation round is a multi-message-history point where this surfaced in
+ * production). Only ever parses a string the model itself sent — never
+ * invents or guesses content. Returns null when input is neither an object
+ * nor a string that parses into one.
+ */
+function decodeInput(rawInput: unknown): Record<string, unknown> | null {
+  if (typeof rawInput === 'object' && rawInput !== null) {
+    return rawInput as Record<string, unknown>;
+  }
+  if (typeof rawInput === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(rawInput);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      // fall through — not valid JSON either; treated as absent below
+    }
+  }
+  return null;
+}
+
+/**
  * Validates a parsed object against the allowed protocol shapes, coercing
  * the model's common type quirks along the way. Returns null when the shape
  * is unrecognisable even after coercion — i.e. truly malformed, not just
@@ -134,8 +159,9 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
     return { type: 'say', message: obj.message };
   }
 
-  if (obj.type === 'tool' && typeof obj.input === 'object' && obj.input !== null) {
-    const input = obj.input as Record<string, unknown>;
+  if (obj.type === 'tool') {
+    const input = decodeInput(obj.input);
+    if (!input) return null;
     const guests = coerceGuests(input.guests);
     const date = coerceText(input.date);
     const time = coerceText(input.time);
@@ -159,6 +185,54 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
     }
   }
   return null;
+}
+
+/** Required input fields per tool, kept in one place so the missing-field
+ * diagnosis below stays in sync with asValidAction's own requirements. */
+const REQUIRED_FIELDS: Record<ToolName, readonly string[]> = {
+  check_availability: ['date', 'time', 'guests'],
+  book_table: ['name', 'phone', 'date', 'time', 'guests'],
+  cancel_booking: ['confirmationCode'],
+  modify_booking: ['confirmationCode', 'guests'],
+};
+const KNOWN_TOOL_NAMES = new Set<string>(Object.keys(REQUIRED_FIELDS));
+
+function isFieldCoercible(field: string, value: unknown): boolean {
+  return field === 'guests' ? coerceGuests(value) !== null : coerceText(value) !== undefined;
+}
+
+/**
+ * Diagnoses WHY a tool-shaped action failed asValidAction, for the specific
+ * case where it failed because required fields are missing/uncoercible (as
+ * opposed to the response being totally unparseable garbage) — so runTurn
+ * can send the model a TARGETED reminder ("missing: name, phone") instead of
+ * the generic protocol reminder. This was the production root cause at the
+ * confirmation round: a guest replying "Megerősítem" without restating name/
+ * phone left the model needing to either ask again or call book_table
+ * without them — when it tried the latter, the generic reminder gave it no
+ * way to understand what specifically to fix, so it kept failing the same
+ * way until the retry budget ran out. Purely diagnostic and read-only: it
+ * NEVER invents field values, only reports which ones are absent.
+ */
+function describeMissingFields(parsed: unknown): { toolName: ToolName; missing: string[] } | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  if (obj.type !== 'tool' || typeof obj.name !== 'string' || !KNOWN_TOOL_NAMES.has(obj.name)) {
+    return null;
+  }
+  const toolName = obj.name as ToolName;
+  const input = decodeInput(obj.input);
+  if (!input) return null; // no usable input object at all — not a "missing a couple of fields" case
+
+  const missing = REQUIRED_FIELDS[toolName].filter((field) => !isFieldCoercible(field, input[field]));
+  return missing.length > 0 ? { toolName, missing } : null;
+}
+
+/** A single-retry, field-specific correction instruction — deliberately
+ * forbids the model from inventing the missing data, and tells it exactly
+ * what to do instead (ask the guest). */
+function buildFieldReminder(diag: { toolName: ToolName; missing: string[] }): string {
+  return `\n\nSTRICT REMINDER: your "${diag.toolName}" tool call is missing required field(s): ${diag.missing.join(', ')}. Do NOT invent, guess, or send these as null/blank. If you do not already have this information from the guest in this conversation, you MUST instead respond with {"type":"say","message":"..."} asking the guest for the missing information — do not attempt "${diag.toolName}" again until every required field is genuinely known.`;
 }
 
 /**
@@ -211,13 +285,18 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   let retriedProtocol = false;
   let stallRetries = 0;
   let forceStallReminder = false;
+  let forceFieldReminder: string | null = null;
 
   while (modelCalls < MAX_MODEL_CALLS) {
     let raw: string;
     try {
-      raw = await callModel(messages, forceStallReminder ? STALL_REMINDER : retriedProtocol ? PROTOCOL_REMINDER : '');
+      raw = await callModel(
+        messages,
+        forceFieldReminder ?? (forceStallReminder ? STALL_REMINDER : retriedProtocol ? PROTOCOL_REMINDER : ''),
+      );
       modelCalls++;
       forceStallReminder = false;
+      forceFieldReminder = null;
     } catch (err) {
       console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
       return { message: fallbackMessage(history), toolCalls, error: true };
@@ -277,14 +356,35 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         return { message: trimmed, toolCalls };
       }
 
-      console.error(
-        `[GROQ_ERROR] extractJson failed on model output / protocol violation (${retriedProtocol ? 'after retry, falling back' : 'retrying once with reminder'}); raw output:`,
-        raw.slice(0, 500),
-      );
       if (!retriedProtocol) {
         retriedProtocol = true;
+        // Targeted diagnosis: if this was a recognisable tool call that only
+        // failed because specific required fields are missing/uncoercible —
+        // e.g. book_table without name/phone, the confirmation-round bug —
+        // tell the model EXACTLY what to fix instead of a generic reminder,
+        // so a well-intentioned model can actually self-correct within this
+        // single retry rather than repeating the same mistake into a
+        // fallback. Anything genuinely unparseable still gets the generic
+        // PROTOCOL_REMINDER, unchanged.
+        const diag = describeMissingFields(extractJson(raw));
+        if (diag) {
+          forceFieldReminder = buildFieldReminder(diag);
+          console.error(
+            `[GROQ_ERROR] "${diag.toolName}" call missing required field(s) [${diag.missing.join(', ')}] — targeted retry; raw output:`,
+            raw.slice(0, 300),
+          );
+        } else {
+          console.error(
+            '[GROQ_ERROR] extractJson failed on model output / protocol violation (retrying once with reminder); raw output:',
+            raw.slice(0, 500),
+          );
+        }
         continue;
       }
+      console.error(
+        '[GROQ_ERROR] extractJson failed on model output / protocol violation (after retry, falling back); raw output:',
+        raw.slice(0, 500),
+      );
       return { message: fallbackMessage(history), toolCalls, error: true };
     }
     retriedProtocol = false;

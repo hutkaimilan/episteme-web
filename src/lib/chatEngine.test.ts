@@ -43,6 +43,40 @@ function scriptedModel(
 
 const user = (content: string): ChatMessage => ({ role: 'user', content });
 
+/**
+ * Simulates the CLIENT's exact two-round flow (ReservationSection.tsx):
+ * round 1 checks availability and asks for name/phone/deposit; round 2 is
+ * the guest's confirmation reply. Critically, only round 1's FINAL `say` is
+ * persisted into history for round 2 — the internal tool-call/result
+ * exchange is NOT — exactly matching production. This is what exposed the
+ * confirmation-round bug: on round 2 the model must independently decide to
+ * call book_table with whatever information it actually has.
+ */
+async function runConfirmationRound(
+  round1Script: string[],
+  round2Script: string[],
+  guestMessage = 'Szeretnék asztalt foglalni holnapra este 21:00-ra, 30 főre.',
+  confirmMessage = 'Megerősítem.',
+) {
+  const greeting: ChatMessage = {
+    role: 'assistant',
+    content: 'Jó estét kívánunk — köszöntjük az EPISTEME recepcióján…',
+  };
+  const round1Guest = user(guestMessage);
+  const round1Model = scriptedModel(round1Script);
+  const round1 = await runTurn([greeting, round1Guest], round1Model);
+
+  const historyRound2: ChatMessage[] = [
+    greeting,
+    round1Guest,
+    { role: 'assistant', content: round1.message },
+    user(confirmMessage),
+  ];
+  const round2Model = scriptedModel(round2Script);
+  const round2 = await runTurn(historyRound2, round2Model);
+  return { round1, round2, round2Model };
+}
+
 beforeEach(() => {
   resetBookings();
 });
@@ -276,4 +310,129 @@ test('modify_booking with guests as a string is coerced and executed', async () 
   const result = await runTurn([user(`Módosítsa a(z) ${code} foglalást 8 főre.`)], model);
   assert.equal(result.toolCalls[0].result.success, true);
   assert.equal(result.toolCalls[0].result.guests, 8);
+});
+
+// ---------------------------------------------------------------------------
+// PRODUCTION BUG #2 — CONFIRMATION ROUND: reported live — "megszakadt a
+// kapcsolat" specifically after the guest replies to the deposit/confirm
+// prompt (e.g. "Megerősítem"), not at the initial request. Reproduced via
+// runConfirmationRound (5 scenarios A–E), matching the exact two-round
+// client flow. Root causes found and fixed:
+//   (A/B) book_table missing/null name+phone — the guest's "Megerősítem"
+//         didn't restate them — is a DIFFERENT failure mode than type
+//         coercion: a genuinely absent required field can't be coerced (you
+//         must never invent a guest's name). Fixed by giving the model a
+//         TARGETED reminder naming exactly which fields are missing, so it
+//         can self-correct within the existing single-retry budget instead
+//         of repeating the same mistake into a hard fallback.
+//   (D)   book_table's "input" arriving double-encoded as a JSON STRING
+//         (a real llama-3.3-70b quirk more common deeper in a conversation)
+//         — a genuinely new "dirty JSON" shape, not covered by the existing
+//         guests/phone coercion. Fixed via decodeInput() re-parsing.
+//   (C)   control — model correctly asks again for the missing info.
+//   (E)   control — model narrates instead of calling the tool; the
+//         PRE-EXISTING stall-detector already handles this correctly.
+// ---------------------------------------------------------------------------
+
+const ROUND1_AVAILABLE_ASK_FOR_DETAILS = [
+  '{"type":"tool","name":"check_availability","input":{"date":"TOMORROW","time":"21:00","guests":30}}',
+  '{"type":"say","message":"Örömmel! Holnap estére a harminc fő számára van helyünk. Kérem, ossza meg velünk a foglaláshoz a teljes nevét és egy telefonszámot. Tájékoztatom, hogy a foglaláshoz 275,59 € előleg tartozik."}',
+];
+
+function round1Script(): string[] {
+  const tomorrow = daysFromToday(1);
+  return ROUND1_AVAILABLE_ASK_FOR_DETAILS.map((s) => s.replace('TOMORROW', tomorrow));
+}
+
+// --- A) name/phone MISSING entirely ---------------------------------------
+test('A) confirmation round: book_table missing name/phone self-corrects via targeted reminder', async () => {
+  const tomorrow = daysFromToday(1);
+  const { round2, round2Model } = await runConfirmationRound(round1Script(), [
+    `{"type":"tool","name":"book_table","input":{"date":"${tomorrow}","time":"21:00","guests":30}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","date":"${tomorrow}","time":"21:00","guests":30}}`,
+    '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
+  ]);
+
+  assert.ok(!round2.error, 'must NOT fall back — the model had one retry to self-correct');
+  assert.doesNotMatch(round2.message, /megszakadt a kapcsolat/);
+  assert.equal(round2.toolCalls.length, 1, 'only the CORRECTED attempt is executed as a real tool call');
+  assert.equal(round2.toolCalls[0].name, 'book_table');
+  assert.equal(round2.toolCalls[0].result.success, true);
+  assert.match(String(round2.toolCalls[0].result.confirmationCode), /^EP-\d{4}$/);
+  // The retry the model received named the exact missing fields.
+  assert.match(round2Model.calls[1].suffix, /missing required field\(s\): name, phone/);
+});
+
+test('A-persist) confirmation round: if the model NEVER supplies name/phone, it still degrades gracefully (safety net intact)', async () => {
+  const tomorrow = daysFromToday(1);
+  const { round2 } = await runConfirmationRound(round1Script(), [
+    `{"type":"tool","name":"book_table","input":{"date":"${tomorrow}","time":"21:00","guests":30}}`,
+  ]);
+
+  assert.equal(round2.error, true);
+  assert.match(round2.message, /megszakadt a kapcsolat/);
+  assert.equal(round2.toolCalls.length, 0, 'no fabricated booking — nothing was ever committed');
+});
+
+// --- B) name/phone sent as JSON null ---------------------------------------
+test('B) confirmation round: book_table with name/phone as null self-corrects via targeted reminder', async () => {
+  const tomorrow = daysFromToday(1);
+  const { round2, round2Model } = await runConfirmationRound(round1Script(), [
+    `{"type":"tool","name":"book_table","input":{"name":null,"phone":null,"date":"${tomorrow}","time":"21:00","guests":30}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"Nagy Péter","phone":"+36201112233","date":"${tomorrow}","time":"21:00","guests":30}}`,
+    '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
+  ]);
+
+  assert.ok(!round2.error);
+  assert.equal(round2.toolCalls.length, 1);
+  assert.equal(round2.toolCalls[0].result.success, true);
+  assert.match(round2Model.calls[1].suffix, /missing required field\(s\): name, phone/);
+});
+
+// --- C) control: model correctly re-asks for missing info -----------------
+test('C) confirmation round: model correctly re-asking for name/phone is unaffected (control)', async () => {
+  const { round2 } = await runConfirmationRound(round1Script(), [
+    '{"type":"say","message":"A foglalás rögzítéséhez kérem, adja meg a teljes nevét és egy telefonszámot."}',
+  ]);
+
+  assert.ok(!round2.error);
+  assert.equal(round2.toolCalls.length, 0);
+  assert.match(round2.message, /nevét|telefon/i);
+});
+
+// --- D) "input" double-encoded as a JSON string -----------------------------
+test('D) confirmation round: book_table with "input" double-encoded as a JSON string is decoded and succeeds immediately', async () => {
+  const tomorrow = daysFromToday(1);
+  const { round2, round2Model } = await runConfirmationRound(round1Script(), [
+    `{"type":"tool","name":"book_table","input":"{\\"name\\":\\"Kovács Anna\\",\\"phone\\":\\"+36301234567\\",\\"date\\":\\"${tomorrow}\\",\\"time\\":\\"21:00\\",\\"guests\\":30}"}`,
+    '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
+  ]);
+
+  assert.ok(!round2.error);
+  assert.doesNotMatch(round2.message, /megszakadt a kapcsolat/);
+  assert.equal(round2.toolCalls.length, 1);
+  assert.equal(round2.toolCalls[0].result.success, true);
+  assert.equal(round2.toolCalls[0].input.name, 'Kovács Anna');
+  assert.equal(round2.toolCalls[0].input.guests, 30);
+  // No retry was needed: the tool call decoded and executed on the model's
+  // FIRST attempt (call 1), with the model's second call being the normal
+  // post-tool confirmation reply, not a retry — neither call carries a
+  // reminder suffix, proving no protocol-violation cycle occurred.
+  assert.equal(round2Model.calls.length, 2);
+  assert.equal(round2Model.calls[0].suffix, '');
+  assert.equal(round2Model.calls[1].suffix, '');
+});
+
+// --- E) model narrates instead of calling the tool (pre-existing stall net) -
+test('E) confirmation round: model narrating ("Egy pillanat, rögzítem...") is caught by the existing stall detector', async () => {
+  const { round2, round2Model } = await runConfirmationRound(round1Script(), [
+    '{"type":"say","message":"Köszönjük a megerősítést! Egy pillanat, rögzítem a foglalást."}',
+  ]);
+
+  assert.equal(round2.error, true);
+  assert.match(round2.message, /megszakadt a kapcsolat/);
+  assert.equal(round2.toolCalls.length, 0);
+  // Two forced retries were attempted (initial + 2) before giving up — same
+  // pre-existing stall-detector budget, unrelated to the field-reminder fix.
+  assert.equal(round2Model.calls.length, 3);
 });
