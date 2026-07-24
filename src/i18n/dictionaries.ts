@@ -104,7 +104,10 @@ export type Dictionary = {
     };
   };
   reservation: {
-    greeting: string;
+    /** Invariant tail of the opening greeting, AFTER the time-of-day phrase
+     * ("Jó reggelt"/"Jó napot"/"Jó estét" etc., computed in src/lib/greeting.ts
+     * and prepended by the component) — e.g. " kívánunk — köszöntjük…". */
+    greetingTail: string;
     placeholder: string;
     send: string;
     transcriptLabel: string;
@@ -488,8 +491,8 @@ const hu: Dictionary = {
     },
   },
   reservation: {
-    greeting:
-      'Jó estét kívánunk — köszöntjük az EPISTEME recepcióján. Örömmel segítünk asztalt foglalni: kérem, ossza meg velünk, hány főre és melyik estére gondolt. Tájékoztatjuk, hogy a foglaláshoz 275,59 € előleg szükséges; minimális fogyasztást nem kérünk, dress code nincs — bárki foglalhat.',
+    greetingTail:
+      ' kívánunk — köszöntjük az EPISTEME recepcióján. Örömmel segítünk asztalt foglalni: kérem, ossza meg velünk, hány főre és melyik estére gondolt. Tájékoztatjuk, hogy a foglaláshoz 275,59 € előleg szükséges; minimális fogyasztást nem kérünk, dress code nincs — bárki foglalhat.',
     placeholder: 'Írja ide üzenetét…',
     send: 'Küldés',
     transcriptLabel: 'Foglalási beszélgetés',
@@ -877,8 +880,8 @@ const en: Dictionary = {
     },
   },
   reservation: {
-    greeting:
-      'Good evening — welcome to the EPISTEME reception. We would be delighted to reserve your table: please tell us for how many guests and which evening you have in mind. Kindly note that a deposit of 275,59 € is required per reservation; there is no minimum spend and no dress code — anyone may book.',
+    greetingTail:
+      ' — welcome to the EPISTEME reception. We would be delighted to reserve your table: please tell us for how many guests and which evening you have in mind. Kindly note that a deposit of 275,59 € is required per reservation; there is no minimum spend and no dress code — anyone may book.',
     placeholder: 'Type your message…',
     send: 'Send',
     transcriptLabel: 'Reservation conversation',
@@ -1266,8 +1269,8 @@ const es: Dictionary = {
     },
   },
   reservation: {
-    greeting:
-      'Buenas noches — bienvenido a la recepción de EPISTEME. Será un placer reservarle una mesa: indíquenos, por favor, para cuántas personas y qué noche desea. Le informamos de que la reserva requiere un depósito de 275,59 €; no exigimos consumo mínimo ni código de vestimenta — cualquiera puede reservar.',
+    greetingTail:
+      ' — bienvenido a la recepción de EPISTEME. Será un placer reservarle una mesa: indíquenos, por favor, para cuántas personas y qué noche desea. Le informamos de que la reserva requiere un depósito de 275,59 €; no exigimos consumo mínimo ni código de vestimenta — cualquiera puede reservar.',
     placeholder: 'Escriba su mensaje…',
     send: 'Enviar',
     transcriptLabel: 'Conversación de reserva',

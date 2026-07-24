@@ -5,6 +5,7 @@ import emailjs from '@emailjs/browser';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { CalendarCheck, Search, Send } from 'lucide-react';
 import { useI18n } from '@/i18n/LanguageProvider';
+import { greetingPhrase } from '@/lib/greeting';
 import { parseItalics } from '@/lib/utils';
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -57,12 +58,18 @@ function ItalicTitle({ copy }: { copy: string }) {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default function ReservationSection() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const reduceMotion = useReducedMotion();
 
-  // Transcript EXCLUDES the greeting: the greeting is a static i18n string
-  // rendered (and sent to the API) separately, so it always follows the
-  // currently selected language without touching state.
+  // The opening greeting's leading phrase ("Jó reggelt"/"Jó napot"/"Jó estét"
+  // and equivalents) is computed fresh from the current Budapest time of day —
+  // never a hardcoded "Jó estét" — and prepended to the invariant i18n tail.
+  const greeting = () => greetingPhrase(lang) + t('reservation.greetingTail');
+
+  // Transcript EXCLUDES the greeting: the greeting is composed (and sent to
+  // the API) separately from an i18n tail + a time-of-day phrase, so it
+  // always follows the currently selected language and current Budapest
+  // time of day without touching state.
   const [transcript, setTranscript] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
@@ -138,7 +145,7 @@ export default function ReservationSection() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'assistant', content: t('reservation.greeting') }, ...nextTranscript],
+          messages: [{ role: 'assistant', content: greeting() }, ...nextTranscript],
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -195,7 +202,7 @@ export default function ReservationSection() {
   };
 
   const messagesToRender: ChatMessage[] = [
-    { role: 'assistant', content: t('reservation.greeting') },
+    { role: 'assistant', content: greeting() },
     ...transcript,
   ];
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fallbackMessage, runTurn, type ChatMessage } from '@/lib/chatEngine';
+import { budapestHour, greetingPhrase, timeOfDayFromHour, type TimeOfDay } from '@/lib/greeting';
 
 /**
  * AI receptionist endpoint, backed by Groq's OpenAI-compatible API (free
@@ -21,15 +22,17 @@ const MAX_TOKENS = 1000;
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 2000;
 
-function todayInBudapest(): { date: string; weekday: string } {
+function todayInBudapest(): { date: string; weekday: string; timeOfDay: TimeOfDay } {
   const now = new Date();
   const date = now.toLocaleDateString('en-CA', { timeZone: 'Europe/Budapest' });
   const weekday = now.toLocaleDateString('en-US', { timeZone: 'Europe/Budapest', weekday: 'long' });
-  return { date, weekday };
+  const timeOfDay = timeOfDayFromHour(budapestHour(now));
+  return { date, weekday, timeOfDay };
 }
 
 function systemPrompt(): string {
-  const { date, weekday } = todayInBudapest();
+  const { date, weekday, timeOfDay } = todayInBudapest();
+  const greetingNow = greetingPhrase('hu');
   return `You are the reception agent of EPISTEME, an ultra-luxury fine-dining restaurant in Budapest, Kossuth Lajos tér 14.
 
 RESTAURANT FACTS (answer accurately if asked):
@@ -38,7 +41,9 @@ RESTAURANT FACTS (answer accurately if asked):
 - ONE seating per evening, no table turnover: every reservation for a given date draws from the same shared 50-seat pool for the ENTIRE evening. A different start time on the same evening never yields extra capacity — never imply that it does.
 - Reservation deposit: 275,59 € per reservation. There is NO minimum spend and NO dress code; anyone may book.
 - Contact e-mail: bizniszpappa@gmail.com.
-- Today is ${weekday}, ${date} (Europe/Budapest). Convert natural-language dates ("tomorrow", "next Saturday") to YYYY-MM-DD accordingly.
+- Today is ${weekday}, ${date} (Europe/Budapest), and it is currently ${timeOfDay} there. Convert natural-language dates ("tomorrow", "next Saturday") to YYYY-MM-DD accordingly.
+
+GREETING: if you open a reply with a greeting, it MUST match the CURRENT time of day in Budapest given above — right now that is "${greetingNow}" (Hungarian); use the equivalent in the guest's own language (English: Good morning/afternoon/evening; Spanish: Buenos días/Buenas tardes/Buenas noches). NEVER default to an evening greeting regardless of the actual time — 05:00–11:59 is morning, 12:00–17:59 is afternoon, 18:00–04:59 is evening. If the guest greets you first, mirror their own greeting rather than second-guessing it.
 
 RESPONSE PROTOCOL — ABSOLUTE RULES:
 Respond with EXACTLY ONE JSON object and NOTHING else. Output the raw JSON object only: no markdown code fences, no preamble, no explanation, no trailing text, no XML tags. The only allowed shapes are:
@@ -55,6 +60,10 @@ EXAMPLES — follow these shapes exactly:
 
 Guest: "Jó estét! Szeretnék asztalt foglalni."
 You: {"type":"say","message":"Jó estét kívánunk! Örömmel segítünk. Kérem, ossza meg velünk, melyik estére, hány órára és hány főre foglalhatunk."}
+
+Guest: "Jó reggelt, szeretnék érdeklődni egy asztalfoglalásról." (assume it is currently morning in Budapest)
+You: {"type":"say","message":"Jó reggelt kívánunk! Örömmel segítünk. Kérem, ossza meg velünk, melyik estére, hány órára és hány főre foglalhatunk."}
+WRONG (never do this — a fixed "Jó estét" regardless of the actual current time of day): {"type":"say","message":"Jó estét kívánunk! ..."}
 
 Guest: "Holnap 21:00-ra, tizenöt főre." (assume tomorrow is 2026-07-24)
 You: {"type":"tool","name":"check_availability","input":{"date":"2026-07-24","time":"21:00","guests":15}}
