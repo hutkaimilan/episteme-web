@@ -221,3 +221,59 @@ test('agent modify_booking runs the real modification (party size reduced)', asy
   assert.equal(result.toolCalls[0].result.guests, 8);
   assert.equal(result.toolCalls[0].result.remainingCapacity, 42);
 });
+
+// ---------------------------------------------------------------------------
+// PRODUCTION BUG: the model emits tool inputs with loose types (numbers as
+// strings, a phone as a number). These MUST be coerced, not rejected — a
+// strict check made a valid book_table with "guests":"30" fall back with the
+// connection-lost message and NO booking.
+// ---------------------------------------------------------------------------
+test('book_table with guests as a STRING is coerced and executed (regression)', async () => {
+  const date = daysFromToday(10);
+  const model = scriptedModel([
+    `{"type":"tool","name":"book_table","input":{"name":"Teszt Vendég","phone":"+36301234567","date":"${date}","time":"21:00","guests":"30"}}`,
+    '{"type":"say","message":"Köszönjük! A foglalását megerősítettük harminc főre."}',
+  ]);
+  const result = await runTurn([user('Igen, erősítse meg 30 főre.')], model);
+
+  assert.ok(!result.error, 'must NOT fall back');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'book_table');
+  assert.equal(result.toolCalls[0].input.guests, 30); // coerced to a number
+  assert.equal(result.toolCalls[0].result.success, true);
+  assert.match(String(result.toolCalls[0].result.confirmationCode), /^EP-\d{4}$/);
+  assert.doesNotMatch(result.message, /megszakadt a kapcsolat/);
+});
+
+test('check_availability with guests as a string and a numeric phone are coerced', async () => {
+  const date = daysFromToday(9);
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"21:00","guests":"12"}}`,
+    '{"type":"say","message":"Igen, tudunk tizenkét fő számára asztalt biztosítani."}',
+  ]);
+  const check = await runTurn([user('Van hely 12 főre?')], model);
+  assert.equal(check.toolCalls[0].input.guests, 12);
+  assert.equal(check.toolCalls[0].result.available, true);
+
+  // A phone sent as an unquoted JSON number must be stringified, not rejected.
+  const bookModel = scriptedModel([
+    `{"type":"tool","name":"book_table","input":{"name":"AB","phone":36301234567,"date":"${date}","time":"21:00","guests":4}}`,
+    '{"type":"say","message":"Megerősítve."}',
+  ]);
+  const book = await runTurn([user('Foglaljon 4 főre.')], bookModel);
+  assert.ok(!book.error);
+  assert.equal(book.toolCalls[0].result.success, true);
+});
+
+test('modify_booking with guests as a string is coerced and executed', async () => {
+  const date = daysFromToday(11);
+  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const code = booked.confirmationCode!;
+  const model = scriptedModel([
+    `{"type":"tool","name":"modify_booking","input":{"confirmationCode":"${code}","guests":"8"}}`,
+    '{"type":"say","message":"Módosítottuk nyolc főre."}',
+  ]);
+  const result = await runTurn([user(`Módosítsa a(z) ${code} foglalást 8 főre.`)], model);
+  assert.equal(result.toolCalls[0].result.success, true);
+  assert.equal(result.toolCalls[0].result.guests, 8);
+});
