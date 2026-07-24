@@ -44,8 +44,9 @@ type ToolAction = { type: 'tool'; name: ToolName; input: Record<string, unknown>
 
 const MAX_TOOL_ITERATIONS = 4;
 const MAX_MODEL_CALLS = 8;
-/** How many times we force a re-prompt when the model announces a check but
- * never actually emits the tool call, before degrading gracefully. */
+/** Retry budget shared by the structural safety nets (stalled announcement,
+ * availability contradiction): how many times we force a targeted re-prompt
+ * before degrading gracefully. Each net counts its own retries against it. */
 const MAX_STALL_RETRIES = 2;
 
 const PROTOCOL_REMINDER =
@@ -78,6 +79,55 @@ export function isActionAnnouncement(text: string): boolean {
     /next step (would be|is|will be)/i.test(text) ||
     /voy a (comprobar|verificar)|perm[ií]tame (comprobar|verificar)|un momento|d[ée]jeme (comprobar|verificar)/i.test(text) ||
     /(el )?siguiente paso (sería|es|será)/i.test(text)
+  );
+}
+
+const CONTRADICTION_REMINDER =
+  '\n\nSTRICT REMINDER: check_availability returned "available": true — the requested party FITS, however large it is. Your previous reply contradicted that result by apologising or refusing. Confirm warmly and move the booking forward: never open with an apology, never say the evening is full or that you cannot accommodate the party, never present the 50-guest maximum as an obstacle when the party is 50 or fewer, and never refuse and confirm in the same message. remainingCapacity is how many seats were free BEFORE this reservation — it is never a reason to decline.';
+
+/**
+ * Detects a reply that REFUSES or apologises for lack of capacity — the
+ * shape of the production bug where check_availability returned
+ * available:true for 36 guests on an empty evening, yet the model opened
+ * with "sajnálattal közlöm, hogy nem tudjuk fogadni…" and then asked for
+ * confirmation anyway (refusing and confirming in one breath).
+ *
+ * Same heuristic style as isActionAnnouncement: cheap language patterns in
+ * all three guest languages. It is only ever consulted for turns where the
+ * tools said yes (see availabilityConfirmed), so a legitimate apology on a
+ * genuinely full evening is never caught by it.
+ *
+ * Spanish note: "completo" is deliberately NOT a pattern — it appears in the
+ * perfectly normal "su nombre completo" (full name) request.
+ */
+export function contradictsAvailability(text: string): boolean {
+  return (
+    /sajnálattal|sajnálom|sajnos|elnézést kér/i.test(text) ||
+    /nem tudjuk? fogadni|nem áll módunkban|nem tudunk helyet|nem tudjuk biztosítani/i.test(text) ||
+    /megtelt|betelt|tele van|nincs (elég |szabad |már )?hely|nincs szabad asztal/i.test(text) ||
+    /unfortunately|i(['’]m| am) sorry|we (regret|are unable)|regret to inform/i.test(text) ||
+    /cannot accommodate|can(not|['’]t) (seat|take)|fully booked|no availability|not enough (seats|room|space)|sold out/i.test(text) ||
+    /lamentablemente|lo siento|lamento (informar|comunicar)|desafortunadamente/i.test(text) ||
+    /no podemos (acomodar|recibir|atender)|no disponemos|sin disponibilidad|no hay (disponibilidad|espacio|mesas)|no tenemos (espacio|sitio)/i.test(text)
+  );
+}
+
+/**
+ * True when this turn actually consulted check_availability AND every tool
+ * result in it was positive — the precondition for the contradiction net.
+ *
+ * The all-positive requirement is what keeps the net from mangling correct
+ * replies: a mixed turn ("Thursday cannot seat you, but Friday can") and a
+ * genuinely full evening both contain a negative result, so the guard stays
+ * off and the model's apology reaches the guest untouched.
+ */
+function availabilityConfirmed(toolCalls: ToolEvent[]): boolean {
+  const checks = toolCalls.filter((call) => call.name === 'check_availability');
+  if (checks.length === 0) return false;
+  return toolCalls.every((call) =>
+    call.name === 'check_availability'
+      ? call.result?.available === true
+      : call.result?.success === true,
   );
 }
 
@@ -297,6 +347,8 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   let retriedProtocol = false;
   let stallRetries = 0;
   let forceStallReminder = false;
+  let contradictionRetries = 0;
+  let forceContradictionReminder = false;
   let forceFieldReminder: string | null = null;
 
   while (modelCalls < MAX_MODEL_CALLS) {
@@ -304,10 +356,18 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     try {
       raw = await callModel(
         messages,
-        forceFieldReminder ?? (forceStallReminder ? STALL_REMINDER : retriedProtocol ? PROTOCOL_REMINDER : ''),
+        forceFieldReminder ??
+          (forceContradictionReminder
+            ? CONTRADICTION_REMINDER
+            : forceStallReminder
+              ? STALL_REMINDER
+              : retriedProtocol
+                ? PROTOCOL_REMINDER
+                : ''),
       );
       modelCalls++;
       forceStallReminder = false;
+      forceContradictionReminder = false;
       forceFieldReminder = null;
     } catch (err) {
       console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
@@ -426,6 +486,31 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         );
         return { message: fallbackMessage(history), toolCalls, error: true };
       }
+
+      // Structural contradiction net: the tools said the party FITS, yet the
+      // reply apologises or refuses (the live 36-guests-on-an-empty-evening
+      // bug, where the model both declined AND asked to confirm). Such a
+      // self-contradiction must never reach the guest — re-prompt with a
+      // targeted reminder, then degrade gracefully. Gated on an all-positive
+      // turn, so a legitimate apology (evening genuinely full) and a mixed
+      // turn ("Thursday no, Friday yes") pass through untouched.
+      if (availabilityConfirmed(toolCalls) && contradictsAvailability(action.message)) {
+        if (contradictionRetries < MAX_STALL_RETRIES) {
+          contradictionRetries++;
+          forceContradictionReminder = true;
+          console.error(
+            `[GROQ_ERROR] Reply contradicts a positive availability result (retry ${contradictionRetries}/${MAX_STALL_RETRIES}); message:`,
+            action.message.slice(0, 200),
+          );
+          continue;
+        }
+        console.error(
+          '[GROQ_ERROR] Model kept contradicting a positive availability result after retries; graceful fallback; message:',
+          action.message.slice(0, 200),
+        );
+        return { message: fallbackMessage(history), toolCalls, error: true };
+      }
+
       return { message: action.message, toolCalls };
     }
 
