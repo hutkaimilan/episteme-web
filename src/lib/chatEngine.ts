@@ -52,20 +52,32 @@ const PROTOCOL_REMINDER =
   '\n\nSTRICT REMINDER: your previous reply violated the response protocol. You MUST respond with EXACTLY ONE JSON object of shape {"type":"say","message":"..."} or {"type":"tool","name":"...","input":{...}} — no prose, no markdown fences, no XML, no invented tool results.';
 
 const STALL_REMINDER =
-  '\n\nSTRICT REMINDER: You have enough information. You must now emit the tool call ({"type":"tool","name":"check_availability",...} or the appropriate tool), not another message. Never announce an action in prose — perform it by emitting the tool-call JSON. Wait for the real [RENDSZER] result before saying anything concrete.';
+  '\n\nSTRICT REMINDER: You have enough information. You must now emit the tool call ({"type":"tool","name":"check_availability",...} or the appropriate tool), not another message. Never announce an action in prose, and never merely DESCRIBE the next step (e.g. "a következő lépés X lenne" / "the next step would be X") without actually performing it — perform it NOW by emitting the tool-call JSON in this very response. Do not wait for the guest to prompt you again for a step you already know you must take. Wait for the real [RENDSZER] result before saying anything concrete.';
 
 /**
- * Distinguishes a stalled action ANNOUNCEMENT ("let me check…", "máris
- * ellenőrzöm…") from a message that DELIVERS information/results. Announced
- * intent needs the force-tool retry path; delivered information may be
- * returned to the guest (or auto-wrapped when it arrived as bare prose).
+ * Distinguishes a stalled action ANNOUNCEMENT from a message that DELIVERS
+ * information/results. Announced intent needs the force-tool retry path;
+ * delivered information may be returned to the guest (or auto-wrapped when
+ * it arrived as bare prose). Two distinct announcement shapes are covered:
+ *  - "let me check…" / "máris ellenőrzöm…" — the model says it is ABOUT TO
+ *    perform an action;
+ *  - "the next step would be X…" / "a következő lépés X lenne…" — the model
+ *    DESCRIBES the obvious next action (already has everything it needs —
+ *    e.g. name+phone just given — and knows exactly what to do) but stops
+ *    short of actually emitting the tool call, leaving the guest to prompt
+ *    again (a real production bug: the guest had to send "Na?" before
+ *    anything happened). Both are "announced but not performed" and get the
+ *    same forced-retry treatment.
  */
 export function isActionAnnouncement(text: string): boolean {
   return (
     /ellenőrz|ellenőriz|megnézem|megnézzük|utánanéz|lekérdez/i.test(text) ||
     /egy pillanat|pillanat türelmét/i.test(text) ||
+    /következő lépés|soron következő lépés/i.test(text) ||
     /let me check|i['’]ll check|i will check|checking (the |our )?availab|allow me to (check|verify)|look(ing)? (it |that )?up|one moment/i.test(text) ||
-    /voy a (comprobar|verificar)|perm[ií]tame (comprobar|verificar)|un momento|d[ée]jeme (comprobar|verificar)/i.test(text)
+    /next step (would be|is|will be)/i.test(text) ||
+    /voy a (comprobar|verificar)|perm[ií]tame (comprobar|verificar)|un momento|d[ée]jeme (comprobar|verificar)/i.test(text) ||
+    /(el )?siguiente paso (sería|es|será)/i.test(text)
   );
 }
 

@@ -93,6 +93,25 @@ test('isActionAnnouncement flags "let me check" style stalls in hu/en/es', () =>
   assert.equal(isActionAnnouncement('Örömmel, van szabad helyünk arra az estére.'), false);
 });
 
+test('isActionAnnouncement flags "the next step would be X" narration in hu/en/es (production bug)', () => {
+  assert.equal(
+    isActionAnnouncement(
+      'A következő lépés a foglalás rögzítése lenne a megadott névvel és telefonszámmal: Kovács Anna, +36301234567.',
+    ),
+    true,
+  );
+  assert.equal(
+    isActionAnnouncement('The next step would be to book the table with the provided name and phone number.'),
+    true,
+  );
+  assert.equal(
+    isActionAnnouncement('El siguiente paso sería registrar la reserva con el nombre y el teléfono proporcionados.'),
+    true,
+  );
+  // A genuine, already-delivered answer must NOT be flagged.
+  assert.equal(isActionAnnouncement('Köszönjük! A foglalását megerősítettük, a kódja EP-1234.'), false);
+});
+
 test('detectLang picks the guest language for the fallback', () => {
   assert.equal(detectLang('Szeretnék asztalt foglalni'), 'hu');
   assert.equal(detectLang('I would like to book a table'), 'en');
@@ -434,5 +453,68 @@ test('E) confirmation round: model narrating ("Egy pillanat, rögzítem...") is 
   assert.equal(round2.toolCalls.length, 0);
   // Two forced retries were attempted (initial + 2) before giving up — same
   // pre-existing stall-detector budget, unrelated to the field-reminder fix.
+  assert.equal(round2Model.calls.length, 3);
+});
+
+// ---------------------------------------------------------------------------
+// PRODUCTION BUG #3 — "NEXT STEP" NARRATION STALL: reported live — after the
+// guest supplies name+phone, the agent replies with something like "a
+// következő lépés a foglalás rögzítése lenne a megadott névvel és
+// telefonszámmal: [name], [phone]" but never actually calls book_table,
+// leaving the guest to prompt again (e.g. "Na?") before anything happens.
+// This is a DIFFERENT phrasing than "let me check…" (which the pre-existing
+// stall detector already caught) — it DESCRIBES the obvious next action
+// instead of announcing an intention to look something up, so it slipped
+// through isActionAnnouncement entirely and was returned as a normal,
+// final `say`. Fixed by widening isActionAnnouncement to also recognise
+// "next step would be X" phrasing in hu/en/es, so it gets the SAME
+// forced-retry treatment, entirely within the current turn — the guest
+// never needs to send a follow-up message for a step the model already
+// knows it must take.
+// ---------------------------------------------------------------------------
+test('next-step stall: guest supplies name+phone, agent narrates the next step instead of booking — forced within the SAME turn, no extra guest message needed', async () => {
+  const { round2, round2Model } = await runConfirmationRound(
+    round1Script(),
+    [
+      '{"type":"say","message":"A következő lépés a foglalás rögzítése lenne a megadott névvel és telefonszámmal: Kovács Anna, +36301234567."}',
+      `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","date":"${daysFromToday(1)}","time":"21:00","guests":30}}`,
+      '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
+    ],
+    'Szeretnék asztalt foglalni holnapra este 21:00-ra, 30 főre.',
+    'Kovács Anna vagyok, telefonszámom +36301234567.',
+  );
+
+  // The guest's follow-up round IS the SAME turn as the narration — the
+  // engine must never return the bare "next step would be X" narration as
+  // if it were a final answer.
+  assert.doesNotMatch(round2.message, /következő lépés/i);
+  assert.ok(!round2.error, 'must NOT fall back — the model had a retry to self-correct within this turn');
+  assert.equal(round2.toolCalls.length, 1, 'the REAL book_table call ran, not just a narrated intention');
+  assert.equal(round2.toolCalls[0].name, 'book_table');
+  assert.equal(round2.toolCalls[0].result.success, true);
+  assert.match(String(round2.toolCalls[0].result.confirmationCode), /^EP-\d{4}$/);
+  assert.match(round2.message, /megerősítettük|köszönjük/i);
+  // The forced retry carried the stall reminder (not the generic protocol
+  // reminder, and not a targeted missing-field reminder — this is the
+  // "perform it now" stall path).
+  assert.match(round2Model.calls[1].suffix, /emit the tool call/);
+});
+
+test('next-step stall: if the model keeps narrating the next step without ever booking, it still degrades gracefully (safety net intact)', async () => {
+  const { round2, round2Model } = await runConfirmationRound(
+    round1Script(),
+    [
+      '{"type":"say","message":"A következő lépés a foglalás rögzítése lenne a megadott névvel és telefonszámmal: Kovács Anna, +36301234567."}',
+    ],
+    'Szeretnék asztalt foglalni holnapra este 21:00-ra, 30 főre.',
+    'Kovács Anna vagyok, telefonszámom +36301234567.',
+  );
+
+  assert.equal(round2.error, true);
+  assert.match(round2.message, /megszakadt a kapcsolat/);
+  assert.doesNotMatch(round2.message, /következő lépés/i);
+  assert.equal(round2.toolCalls.length, 0, 'no fabricated booking — nothing was ever committed');
+  // Two forced retries were attempted (initial + 2) before giving up — the
+  // same budget as every other stall pattern.
   assert.equal(round2Model.calls.length, 3);
 });
