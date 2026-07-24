@@ -253,24 +253,24 @@ function buildFieldReminder(diag: { toolName: ToolName; missing: string[] }): st
  * conversation's failure point is always visible in the server log, tied
  * together by the confirmation code or date/guests for correlation.
  */
-function executeTool(action: ToolAction): Record<string, unknown> {
+async function executeTool(action: ToolAction): Promise<Record<string, unknown>> {
   const input = action.input;
   let result: Record<string, unknown>;
 
   if (action.name === 'check_availability') {
-    result = checkAvailability(input.date as string, input.time as string, input.guests as number) as unknown as Record<string, unknown>;
+    result = (await checkAvailability(input.date as string, input.time as string, input.guests as number)) as unknown as Record<string, unknown>;
   } else if (action.name === 'cancel_booking') {
-    result = cancelBooking(input.confirmationCode as string) as unknown as Record<string, unknown>;
+    result = (await cancelBooking(input.confirmationCode as string)) as unknown as Record<string, unknown>;
   } else if (action.name === 'modify_booking') {
-    result = modifyBooking(input.confirmationCode as string, input.guests as number) as unknown as Record<string, unknown>;
+    result = (await modifyBooking(input.confirmationCode as string, input.guests as number)) as unknown as Record<string, unknown>;
   } else {
-    result = bookTable(
+    result = (await bookTable(
       input.name as string,
       input.phone as string,
       input.date as string,
       input.time as string,
       input.guests as number,
-    ) as unknown as Record<string, unknown>;
+    )) as unknown as Record<string, unknown>;
   }
 
   console.log('[CHAT_TOOL]', JSON.stringify({ ts: new Date().toISOString(), name: action.name, input, result }));
@@ -435,7 +435,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     }
     toolIterations++;
 
-    const result = executeTool(action);
+    const result = await executeTool(action);
     toolCalls.push({ name: action.name, input: action.input, result });
 
     messages.push({ role: 'assistant', content: JSON.stringify(action) });
