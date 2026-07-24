@@ -112,6 +112,87 @@ export function contradictsAvailability(text: string): boolean {
   );
 }
 
+const UNVERIFIED_CONFIRMATION_REMINDER =
+  '\n\nSTRICT REMINDER: you just told the guest we have room WITHOUT a check_availability result backing exactly that date and party size in this turn. Never state or imply availability from memory, from an earlier turn, or from a check made for a DIFFERENT party size — capacity changes and an earlier answer does not carry over. Emit {"type":"tool","name":"check_availability","input":{"date":"YYYY-MM-DD","time":"HH:MM","guests":N}} NOW with the party size the guest actually asked for, and wait for the real result before saying anything about availability.';
+
+/**
+ * Number words → value, for the party sizes this restaurant can ever take
+ * (1–50). Hungarian is the production language and the one the model writes
+ * out in words ("a harminc fő számára"); English and Spanish are covered for
+ * the other two guest languages. Digits are handled separately.
+ */
+const NUMBER_WORDS: Record<string, number> = (() => {
+  const map: Record<string, number> = {};
+  const huUnits = ['', 'egy', 'kettő', 'három', 'négy', 'öt', 'hat', 'hét', 'nyolc', 'kilenc'];
+  const huUnitAlt: Record<number, string> = { 2: 'két' };
+  const huTens: Record<number, string> = { 10: 'tíz', 20: 'húsz', 30: 'harminc', 40: 'negyven', 50: 'ötven' };
+  const huTeenPrefix: Record<number, string> = { 10: 'tizen', 20: 'huszon', 30: 'harminc', 40: 'negyven', 50: 'ötven' };
+  for (let u = 1; u <= 9; u++) {
+    map[huUnits[u]] = u;
+    if (huUnitAlt[u]) map[huUnitAlt[u]] = u;
+  }
+  for (const tens of [10, 20, 30, 40, 50]) {
+    map[huTens[tens]] = tens;
+    for (let u = 1; u <= 9 && tens + u <= 50; u++) {
+      map[`${huTeenPrefix[tens]}${huUnits[u]}`] = tens + u;
+      if (huUnitAlt[u]) map[`${huTeenPrefix[tens]}${huUnitAlt[u]}`] = tens + u;
+    }
+  }
+  const enUnits = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+  const enTeens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const enTens: Record<number, string> = { 20: 'twenty', 30: 'thirty', 40: 'forty', 50: 'fifty' };
+  for (let u = 1; u <= 9; u++) map[enUnits[u]] = u;
+  enTeens.forEach((w, i) => { map[w] = 10 + i; });
+  for (const tens of [20, 30, 40, 50]) {
+    map[enTens[tens]] = tens;
+    for (let u = 1; u <= 9 && tens + u <= 50; u++) map[`${enTens[tens]}-${enUnits[u]}`] = tens + u;
+  }
+  const esUnits = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+  const esTeens = ['diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
+  const esTens: Record<number, string> = { 20: 'veinte', 30: 'treinta', 40: 'cuarenta', 50: 'cincuenta' };
+  for (let u = 1; u <= 9; u++) map[esUnits[u]] = u;
+  esTeens.forEach((w, i) => { map[w] = 10 + i; });
+  for (const tens of [20, 30, 40, 50]) map[esTens[tens]] = tens;
+  return map;
+})();
+
+/** Words that mark the preceding number as a PARTY SIZE (not a time, price or date). */
+const PARTY_UNIT = '(?:fő|fős|főre|főt|fővel|személy(?:re|t|lyel)?|vendég(?:re|et)?|guests?|people|persons?|diners?|comensales?|personas?|invitados?)';
+// `\b` cannot terminate the unit: "fő" ends in a non-ASCII letter, which
+// JS word boundaries do not recognise. A negative letter lookahead is the
+// correct terminator and also stops "fős" matching inside a longer word.
+const PARTY_SIZE_RE = new RegExp(`(?:([0-9]{1,2})\\s*|([\\p{L}-]{2,})\\s+)${PARTY_UNIT}(?![\\p{L}])`, 'giu');
+
+/**
+ * Party sizes the message actually STATES, e.g. "a harminc fő számára" → [30],
+ * "for 9 guests" → [9]. Only numbers immediately followed by a party-size unit
+ * are read, so the deposit ("275,59 €") and the seating time ("21:00") can
+ * never be mistaken for a head count.
+ */
+export function statedPartySizes(text: string): number[] {
+  const sizes: number[] = [];
+  for (const m of text.matchAll(PARTY_SIZE_RE)) {
+    const token = (m[1] ?? m[2] ?? '').toLowerCase();
+    const value = /^[0-9]+$/.test(token) ? Number(token) : NUMBER_WORDS[token];
+    if (typeof value === 'number' && value >= 1 && value <= 200) sizes.push(value);
+  }
+  return sizes;
+}
+
+/**
+ * Detects a reply that ASSERTS we have room. Refusals and mixed answers are
+ * excluded up front by reusing contradictsAvailability, so negated phrasings
+ * ("nincs helyünk", "nem tudjuk fogadni") can never be read as affirmations.
+ */
+export function claimsAvailability(text: string): boolean {
+  if (contradictsAvailability(text)) return false;
+  return (
+    /van (szabad |még )?hely|tudjuk fogadni|tudunk fogadni|rendelkezésre áll|le tudjuk foglalni|foglalhatjuk/i.test(text) ||
+    /we have (room|space|availability|a table)|we can (accommodate|seat|welcome)|is available|happy to (seat|welcome)/i.test(text) ||
+    /tenemos (sitio|mesa|espacio|disponibilidad)|podemos (acomodar|recibir|sentar)|est[áa] disponible/i.test(text)
+  );
+}
+
 /**
  * True when this turn actually consulted check_availability AND every tool
  * result in it was positive — the precondition for the contradiction net.
@@ -121,6 +202,44 @@ export function contradictsAvailability(text: string): boolean {
  * genuinely full evening both contain a negative result, so the guard stays
  * off and the model's apology reaches the guest untouched.
  */
+/**
+ * The false-ACCEPTANCE net. A reply may only assert availability if THIS turn
+ * contains a check_availability that returned available:true for exactly the
+ * party size the reply names. Returns the reason it is unbacked, or null when
+ * the claim is properly evidenced.
+ *
+ * The production incident this exists for: 24 guests were already booked for
+ * Sunday; the guest first mis-stated the party ("vasarnap este 9, 30 fore" →
+ * the model read the 9pm time as "9 guests"), the tool legitimately said yes
+ * for 9, and when the guest CORRECTED the number to 30 the model simply
+ * restated its earlier yes — no tool ran at all (toolCalls was empty), so
+ * 24 + 30 = 54 was confirmed against a 50-seat room. Prompt rules alone
+ * cannot prevent that; only the engine can refuse to forward an unbacked
+ * claim, which is why this check lives here and not in the system prompt.
+ */
+function unbackedAvailabilityClaim(message: string, toolCalls: ToolEvent[]): string | null {
+  if (!claimsAvailability(message)) return null;
+
+  const positives = toolCalls.filter(
+    (call) => call.name === 'check_availability' && call.result?.available === true,
+  );
+  if (positives.length === 0) {
+    return toolCalls.some((call) => call.name === 'check_availability')
+      ? 'availability asserted although this turn check_availability did NOT return available:true'
+      : 'availability asserted although no check_availability ran in this turn';
+  }
+
+  const checkedSizes = new Set(
+    positives.map((call) => call.input?.guests).filter((g): g is number => typeof g === 'number'),
+  );
+  const claimed = statedPartySizes(message);
+  const unverified = claimed.filter((size) => !checkedSizes.has(size));
+  if (unverified.length > 0) {
+    return `availability asserted for party size ${unverified.join('/')} but only ${[...checkedSizes].join('/')} was actually checked`;
+  }
+  return null;
+}
+
 function availabilityConfirmed(toolCalls: ToolEvent[]): boolean {
   const checks = toolCalls.filter((call) => call.name === 'check_availability');
   if (checks.length === 0) return false;
@@ -349,6 +468,8 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   let forceStallReminder = false;
   let contradictionRetries = 0;
   let forceContradictionReminder = false;
+  let unbackedRetries = 0;
+  let forceUnbackedReminder = false;
   let forceFieldReminder: string | null = null;
 
   while (modelCalls < MAX_MODEL_CALLS) {
@@ -357,7 +478,9 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       raw = await callModel(
         messages,
         forceFieldReminder ??
-          (forceContradictionReminder
+          (forceUnbackedReminder
+            ? UNVERIFIED_CONFIRMATION_REMINDER
+            : forceContradictionReminder
             ? CONTRADICTION_REMINDER
             : forceStallReminder
               ? STALL_REMINDER
@@ -368,6 +491,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       modelCalls++;
       forceStallReminder = false;
       forceContradictionReminder = false;
+      forceUnbackedReminder = false;
       forceFieldReminder = null;
     } catch (err) {
       console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
@@ -506,6 +630,31 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         }
         console.error(
           '[GROQ_ERROR] Model kept contradicting a positive availability result after retries; graceful fallback; message:',
+          action.message.slice(0, 200),
+        );
+        return { message: fallbackMessage(history), toolCalls, error: true };
+      }
+
+      // FALSE-ACCEPTANCE net (the inverse of the one above, and the more
+      // dangerous direction): a claim that we have room must be evidenced by
+      // a check_availability in THIS turn that returned available:true for
+      // exactly the party size being confirmed. An unbacked claim is never
+      // forwarded — the model is ordered to run the real check, and if it
+      // still will not, the guest gets the graceful fallback rather than a
+      // reservation the room cannot hold.
+      const unbacked = unbackedAvailabilityClaim(action.message, toolCalls);
+      if (unbacked) {
+        if (unbackedRetries < MAX_STALL_RETRIES) {
+          unbackedRetries++;
+          forceUnbackedReminder = true;
+          console.error(
+            `[GROQ_ERROR] Unbacked availability claim (force-check retry ${unbackedRetries}/${MAX_STALL_RETRIES}): ${unbacked}; message:`,
+            action.message.slice(0, 200),
+          );
+          continue;
+        }
+        console.error(
+          `[GROQ_ERROR] Model kept asserting availability without a matching check after retries (${unbacked}); graceful fallback; message:`,
           action.message.slice(0, 200),
         );
         return { message: fallbackMessage(history), toolCalls, error: true };
