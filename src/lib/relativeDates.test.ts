@@ -55,21 +55,21 @@ test('oracle: Hungarian relative expressions resolve to the expected dates', () 
   assert.equal(resolveHu('két hét múlva péntek', REF), '2026-08-07'); // Fri two weeks out
 });
 
-test('backstop: future relative resolutions pass validateSlot; a weekend Sat allows 00:00', () => {
+test('backstop: future relative resolutions pass validateSlot; a weekend Sat allows 00:00', async () => {
   const today = new Date();
   const holnaputan = resolveHu('holnapután', today);
-  assert.equal(checkAvailability(holnaputan, '21:00', 2).available, true);
+  assert.equal((await checkAvailability(holnaputan, '21:00', 2)).available, true);
 
   const jovoSzombat = resolveHu('jövő szombat', today);
   // It is a Saturday → weekend last seating 00:00 is valid.
-  assert.equal(checkAvailability(jovoSzombat, '00:00', 2).available, true);
+  assert.equal((await checkAvailability(jovoSzombat, '00:00', 2)).available, true);
 
   const ketHetPentek = resolveHu('két hét múlva péntek', today);
-  const r = checkAvailability(ketHetPentek, '21:00', 2);
+  const r = await checkAvailability(ketHetPentek, '21:00', 2);
   assert.equal(r.available, true);
 });
 
-test('backstop: "17-én" resolving to a PAST 17th is caught, a future 17th is accepted', () => {
+test('backstop: "17-én" resolving to a PAST 17th is caught, a future 17th is accepted', async () => {
   // "17-én" (on the 17th) is month-relative: the 17th of the current month if
   // still ahead, otherwise next month's 17th. If the current-month 17th is
   // already past, a model that wrongly picks it is caught by the past_date guard.
@@ -84,8 +84,8 @@ test('backstop: "17-én" resolving to a PAST 17th is caught, a future 17th is ac
 
   if (dayOfMonth > 17) {
     // current-month 17th is in the past → must be rejected
-    assert.match(checkAvailability(thisMonth17, '21:00', 2).reason ?? '', /past_date/);
+    assert.match((await checkAvailability(thisMonth17, '21:00', 2)).reason ?? '', /past_date/);
   }
   // the next-month 17th is always in the future → accepted
-  assert.equal(checkAvailability(nextMonth17, '21:00', 2).available, true);
+  assert.equal((await checkAvailability(nextMonth17, '21:00', 2)).available, true);
 });

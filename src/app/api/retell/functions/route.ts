@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   }
 
   if (name === 'check_availability') {
-    const result = checkAvailability(
+    const result = await checkAvailability(
       String(args.date ?? ''),
       String(args.time ?? ''),
       coerceGuests(args.guests),
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     // input in the system ("anna kukac example pont hu", stray spaces,
     // casing); bookTable normalises it and rejects only what is truly
     // unusable.
-    const result = bookTable(
+    const result = await bookTable(
       String(args.name ?? ''),
       String(args.phone ?? ''),
       String(args.email ?? ''),
@@ -85,12 +85,7 @@ export async function POST(request: Request) {
     );
     console.log(
       '[RETELL_DEBUG] book_table',
-      JSON.stringify({
-        args: { ...args, phone: '[redacted]', email: '[redacted]' },
-        success: result.success,
-        code: result.confirmationCode ?? null,
-        reason: result.reason ?? null,
-      }),
+      JSON.stringify({ args: { ...args, phone: '[redacted]', email: '[redacted]' }, success: result.success, code: result.confirmationCode ?? null, reason: result.reason ?? null }),
     );
     return NextResponse.json(result);
   }

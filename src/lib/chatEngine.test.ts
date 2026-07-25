@@ -4,11 +4,12 @@ import {
   runTurn,
   isActionAnnouncement,
   contradictsAvailability,
+  claimsAvailability,
+  statedPartySizes,
   detectLang,
   fallbackMessage,
   type ChatMessage,
   type ModelCaller,
-  type ToolEvent,
 } from './chatEngine.ts';
 import { bookTable, checkAvailability, resetBookings } from './booking.ts';
 
@@ -79,8 +80,8 @@ async function runConfirmationRound(
   return { round1, round2, round2Model };
 }
 
-beforeEach(() => {
-  resetBookings();
+beforeEach(async () => {
+  await resetBookings();
 });
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ test('detectLang picks the guest language for the fallback', () => {
 // ---------------------------------------------------------------------------
 test('announced "let me check" forces the real check_availability tool before answering', async () => {
   const date = nextDow(6);
-  bookTable('Existing', '+36301234567', 'vendeg@example.com', date, '20:00', 12); // 38 free
+  await bookTable('Existing', '+36301234567', 'vendeg@example.com', date, '20:00', 12); // 38 free
 
   const model = scriptedModel([
     '{"type":"say","message":"Máris ellenőrzöm, egy pillanat türelmét."}',
@@ -153,7 +154,7 @@ test('announced "let me check" forces the real check_availability tool before an
 // ---------------------------------------------------------------------------
 test('12 booked + 30 requested same date: agent confirms availability (not "19 left, other day")', async () => {
   const date = nextDow(6);
-  bookTable('Existing', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
+  await bookTable('Existing', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
 
   const model = scriptedModel([
     `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"21:00","guests":30}}`,
@@ -245,7 +246,7 @@ test('a post-tool past-tense reply is returned, not mistaken for a stall', async
 // ---------------------------------------------------------------------------
 test('agent cancel_booking runs the real cancellation and frees capacity', async () => {
   const date = daysFromToday(10);
-  const booked = bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const code = booked.confirmationCode!;
 
   const model = scriptedModel([
@@ -262,7 +263,7 @@ test('agent cancel_booking runs the real cancellation and frees capacity', async
 
 test('agent modify_booking runs the real modification (party size reduced)', async () => {
   const date = daysFromToday(11);
-  const booked = bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const code = booked.confirmationCode!;
 
   const model = scriptedModel([
@@ -341,7 +342,7 @@ test('check_availability with guests as a string and a numeric phone are coerced
 
 test('modify_booking with guests as a string is coerced and executed', async () => {
   const date = daysFromToday(11);
-  const booked = bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const code = booked.confirmationCode!;
   const model = scriptedModel([
     `{"type":"tool","name":"modify_booking","input":{"confirmationCode":"${code}","guests":"8"}}`,
@@ -418,7 +419,7 @@ test('A-persist) confirmation round: if the model NEVER supplies name/phone, it 
 test('B) confirmation round: book_table with name/phone as null self-corrects via targeted reminder', async () => {
   const tomorrow = daysFromToday(1);
   const { round2, round2Model } = await runConfirmationRound(round1Script(), [
-    `{"type":"tool","name":"book_table","input":{"name":null,"phone":null,"email":null,"date":"${tomorrow}","time":"21:00","guests":30}}`,
+    `{"type":"tool","name":"book_table","input":{"name":null,"phone":null,"date":"${tomorrow}","time":"21:00","guests":30}}`,
     `{"type":"tool","name":"book_table","input":{"name":"Nagy Péter","phone":"+36201112233","email":"vendeg@example.com","date":"${tomorrow}","time":"21:00","guests":30}}`,
     '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
   ]);
@@ -541,189 +542,322 @@ test('next-step stall: if the model keeps narrating the next step without ever b
 });
 
 // ---------------------------------------------------------------------------
-// AVAILABLE-BUT-REFUSED (production bug, live test): a 36-guest request on an
-// empty 50-seat evening. The booking engine is RIGHT — checkAvailability
-// returns {"available":true,"remainingCapacity":50} — but the model answered
-// "Sajnálattal közlöm … sajnos nem tudunk asztalt foglalni, mivel a maximális
-// kapacitásunk 50 fő, így a 36 fő az elfogadható létszám" and then asked the
-// guest to confirm that very booking: a refusal and a confirmation in one
-// breath. The engine had no guard and passed it straight to the guest.
-//
-// The fix is two-layered: the system prompt now teaches this exact case (with
-// the contradictory text as an explicit WRONG example), and the engine
-// re-prompts — then degrades gracefully — rather than ever letting a refusal
-// of an available evening reach a guest.
+// Availability contradiction — the production bug where check_availability
+// returned available:true for 36 guests on an empty evening, yet the reply
+// opened with "sajnálattal közlöm, hogy nem tudjuk fogadni…" and then asked
+// for confirmation anyway (refusing and confirming in one breath).
 // ---------------------------------------------------------------------------
 
-const CONTRADICTORY_36 =
-  'Sajnálattal közlöm, hogy a kérdezett időpontban és létszámban sajnos nem tudunk asztalt foglalni, mivel a maximális kapacitásunk 50 fő, így a 36 fő az elfogadható létszám. Megerősíti a foglalást 36 főre?';
-const CLEAN_36 =
-  'Örömmel tájékoztatom, hogy az adott estére a harminchat fő számára van helyünk. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot; a foglaláshoz 275,59 € előleg tartozik.';
-
-function checkEvent(available: boolean, remainingCapacity: number): ToolEvent {
-  return {
-    name: 'check_availability',
-    input: { date: daysFromToday(1), time: '20:00', guests: 36 },
-    result: available
-      ? { available: true, remainingCapacity }
-      : { available: false, remainingCapacity, reason: 'insufficient_capacity' },
-  };
-}
-
-// --- the engine itself is correct: the bug was never in booking.ts ---------
-test('capacity sanity: 36 guests fit an empty evening, and fit EXACTLY when 36 seats remain', () => {
-  const date = daysFromToday(1);
-  assert.deepEqual(checkAvailability(date, '20:00', 36), { available: true, remainingCapacity: 50 });
-
-  // Exactly-fits boundary: 14 already booked → 36 remain → a 36-party fits.
-  assert.equal(bookTable('Teszt Elek', '+36301112222', 'vendeg@example.com', date, '20:00', 14).success, true);
-  assert.deepEqual(checkAvailability(date, '20:00', 36), { available: true, remainingCapacity: 36 });
-  // One more than remains is correctly refused — the boundary is not off-by-one.
-  assert.equal(checkAvailability(date, '20:00', 37).available, false);
+test('capacity: 36 guests fit on an empty evening (available, full 50 free)', async () => {
+  const date = daysFromToday(3);
+  const result = await checkAvailability(date, '20:00', 36);
+  assert.equal(result.available, true);
+  assert.equal(result.remainingCapacity, 50);
 });
 
-// --- detector unit tests ---------------------------------------------------
-test('contradictsAvailability flags the exact production message after an available:true check', () => {
-  assert.equal(contradictsAvailability([checkEvent(true, 50)], CONTRADICTORY_36), true);
+test('capacity: 36 guests fit when exactly 36 seats remain (boundary)', async () => {
+  const date = daysFromToday(4);
+  assert.equal((await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 14)).success, true);
+  const result = await checkAvailability(date, '20:00', 36);
+  assert.equal(result.available, true, '14 + 36 = 50 exactly — must fit');
+  assert.equal(result.remainingCapacity, 36);
 });
 
-test('contradictsAvailability flags refusal wording in en/es too', () => {
-  assert.equal(
-    contradictsAvailability([checkEvent(true, 50)], 'Unfortunately we cannot accommodate 36 guests, as our maximum is 50.'),
-    true,
-  );
-  assert.equal(
-    contradictsAvailability([checkEvent(true, 50)], 'Lamentablemente no podemos aceptar 36 comensales, nuestro máximo es 50.'),
-    true,
-  );
+test('capacity: 37 guests are correctly refused when 36 remain (no off-by-one)', async () => {
+  const date = daysFromToday(5);
+  assert.equal((await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 14)).success, true);
+  const result = await checkAvailability(date, '20:00', 37);
+  assert.equal(result.available, false);
+  assert.equal(result.remainingCapacity, 36);
 });
 
-test('contradictsAvailability does NOT flag a clean confirmation', () => {
-  assert.equal(contradictsAvailability([checkEvent(true, 50)], CLEAN_36), false);
-  assert.equal(
-    contradictsAvailability([checkEvent(true, 50)], 'Örömmel! Van helyünk a harminchat fő számára. Kérem a teljes nevét.'),
-    false,
-  );
-});
-
-test('contradictsAvailability does NOT flag a legitimate apology when the evening truly is unavailable', () => {
-  assert.equal(contradictsAvailability([checkEvent(false, 11)], CONTRADICTORY_36), false);
-});
-
-test('contradictsAvailability stands down on a MIXED turn (one date full, another free)', () => {
-  // "The 24th is full, but the 25th has room" is correct and contains an
-  // apology — the guard must never fire on it.
-  const mixed = [checkEvent(false, 11), checkEvent(true, 50)];
-  assert.equal(
-    contradictsAvailability(mixed, 'Sajnálattal közlöm, hogy csütörtökre nincs elég helyünk, de péntekre örömmel várjuk Önöket.'),
-    false,
-  );
-});
-
-test('contradictsAvailability ignores turns where no check_availability ran, and failed tools', () => {
-  assert.equal(contradictsAvailability([], CONTRADICTORY_36), false);
-  const failedBooking: ToolEvent = {
-    name: 'book_table',
-    input: {},
-    result: { success: false, reason: 'invalid_phone' },
-  };
-  assert.equal(contradictsAvailability([checkEvent(true, 50), failedBooking], CONTRADICTORY_36), false);
-});
-
-test('contradictsAvailability does not trip on Spanish "su nombre completo" (false-positive trap)', () => {
+test('contradiction detector: catches the exact live Hungarian self-contradiction', () => {
   assert.equal(
     contradictsAvailability(
-      [checkEvent(true, 50)],
-      'Con mucho gusto. Por favor, comparta su nombre completo y un número de teléfono.',
+      'Sajnálattal közlöm, hogy a harminchat fő számára nem tudjuk biztosítani a helyet, mivel a maximális kapacitásunk ötven fő. Kérem, erősítse meg, hogy foglalhatom-e Önnek ezt az asztalt.',
+    ),
+    true,
+  );
+});
+
+test('contradiction detector: catches the English and Spanish equivalents', () => {
+  assert.equal(
+    contradictsAvailability(
+      'Unfortunately we cannot accommodate a party of thirty-six, as our maximum is fifty guests. Please confirm the reservation.',
+    ),
+    true,
+    'English',
+  );
+  assert.equal(
+    contradictsAvailability(
+      'Lamentablemente no podemos acomodar a treinta y seis comensales. Por favor, confirme la reserva.',
+    ),
+    true,
+    'Spanish',
+  );
+});
+
+test('contradiction detector: silent on a correct warm confirmation', () => {
+  assert.equal(
+    contradictsAvailability(
+      'Örömmel! Szombat estére a harminchat fő számára van helyünk. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot.',
     ),
     false,
   );
 });
 
-// --- end-to-end through runTurn -------------------------------------------
-test('36 guests on an empty evening: a contradictory refusal is re-prompted and the guest gets a clean confirmation', async () => {
-  const date = daysFromToday(1);
-  const model = scriptedModel([
-    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
-    JSON.stringify({ type: 'say', message: CONTRADICTORY_36 }),
-    JSON.stringify({ type: 'say', message: CLEAN_36 }),
-  ]);
-  const result = await runTurn([user('Harminchat főre szeretnék asztalt holnap estére.')], model);
-
-  // The real tool ran and really said yes.
-  assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0].result.available, true);
-  assert.equal(result.toolCalls[0].result.remainingCapacity, 50);
-
-  // The guest gets an unambiguous confirmation — no refusal, no apology.
-  assert.ok(!result.error, 'the model self-corrected; this must not degrade to the fallback');
-  assert.match(result.message, /van helyünk/i);
-  assert.doesNotMatch(result.message, /sajnálattal|sajnos nem|nem tudunk/i);
-  // …and the forced retry carried the availability reminder, not the stall one.
-  assert.match(model.calls[2].suffix, /"available":true/);
-  assert.match(model.calls[2].suffix, /Do NOT apologise/);
+test('contradiction detector: does NOT fire on the Spanish "su nombre completo" trap', () => {
+  assert.equal(
+    contradictsAvailability(
+      '¡Con mucho gusto! Tenemos sitio para treinta y seis comensales. Indíquenos su nombre completo y un teléfono, por favor.',
+    ),
+    false,
+    '"completo" must never be a rejection pattern — it appears in the ordinary full-name request',
+  );
 });
 
-test('36 guests: if the model keeps refusing an available evening, the contradiction NEVER reaches the guest', async () => {
-  const date = daysFromToday(1);
-  const model = scriptedModel([
-    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
-    JSON.stringify({ type: 'say', message: CONTRADICTORY_36 }),
-  ]);
-  const result = await runTurn([user('Harminchat főre szeretnék asztalt holnap estére.')], model);
-
-  assert.equal(result.error, true);
-  assert.match(result.message, /megszakadt a kapcsolat/);
-  assert.doesNotMatch(result.message, /nem tudunk asztalt foglalni/i);
-  assert.doesNotMatch(result.message, /maximális kapacitásunk/i);
-  // Initial say + 2 forced retries, the same budget as every other safety net.
-  assert.equal(model.calls.length, 4);
-});
-
-test('36 guests: a correct confirmation first time passes through untouched, with no extra model call', async () => {
-  const date = daysFromToday(1);
-  const model = scriptedModel([
-    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
-    JSON.stringify({ type: 'say', message: CLEAN_36 }),
-  ]);
-  const result = await runTurn([user('Harminchat főre szeretnék asztalt holnap estére.')], model);
-
-  assert.equal(result.message, CLEAN_36);
-  assert.ok(!result.error);
-  assert.equal(model.calls.length, 2, 'no needless re-prompt on a perfectly good reply');
-});
-
-test('exactly-fits boundary (36 requested, exactly 36 left): still confirmed, never refused', async () => {
-  const date = daysFromToday(1);
-  assert.equal(bookTable('Teszt Elek', '+36301112222', 'vendeg@example.com', date, '20:00', 14).success, true);
-
-  const model = scriptedModel([
-    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
-    JSON.stringify({ type: 'say', message: CONTRADICTORY_36 }),
-    JSON.stringify({ type: 'say', message: CLEAN_36 }),
-  ]);
-  const result = await runTurn([user('Harminchat főre szeretnék asztalt holnap estére.')], model);
-
-  assert.equal(result.toolCalls[0].result.available, true);
-  assert.equal(result.toolCalls[0].result.remainingCapacity, 36, 'the party fits the remainder EXACTLY');
-  assert.ok(!result.error);
-  assert.match(result.message, /van helyünk/i);
-});
-
-test('regression: a genuinely full evening still gets its legitimate apology, unchanged', async () => {
-  const date = daysFromToday(1);
-  assert.equal(bookTable('Teszt Elek', '+36301112222', 'vendeg@example.com', date, '20:00', 39).success, true);
-
+test('contradiction guard: stays off for a legitimately full evening (apology passes through)', async () => {
+  const date = daysFromToday(6);
+  assert.equal((await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 45)).success, true);
   const apology =
-    'Sajnálattal közlöm, hogy arra az estére már csak tizenegy szabad helyünk maradt. Ajánlom a következő estét.';
+    'Sajnálattal közlöm, hogy arra az estére már csak öt szabad helyünk maradt. Ajánlhatok másik estét?';
   const model = scriptedModel([
     `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
-    JSON.stringify({ type: 'say', message: apology }),
+    `{"type":"say","message":"${apology}"}`,
   ]);
-  const result = await runTurn([user('Harminchat főre szeretnék asztalt holnap estére.')], model);
+  const turn = await runTurn([user(`${date} 20:00, 36 főre kérnék asztalt.`)], model);
 
-  assert.equal(result.toolCalls[0].result.available, false);
-  assert.equal(result.message, apology, 'the guard must not touch a correct refusal');
-  assert.ok(!result.error);
+  assert.equal(turn.message, apology, 'a genuine apology must reach the guest untouched');
+  assert.equal(turn.error, undefined);
+  assert.equal(model.calls.length, 2, 'no needless retry on a legitimate refusal');
+});
+
+test('contradiction guard: stays off on a mixed turn (one date full, another free)', async () => {
+  const fullDate = daysFromToday(7);
+  const freeDate = daysFromToday(8);
+  assert.equal((await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', fullDate, '20:00', 45)).success, true);
+  const mixed =
+    'Sajnálattal közlöm, hogy csütörtökre nincs elég helyünk, de péntek estére örömmel várjuk Önöket harminchat fővel.';
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${fullDate}","time":"20:00","guests":36}}`,
+    `{"type":"tool","name":"check_availability","input":{"date":"${freeDate}","time":"20:00","guests":36}}`,
+    `{"type":"say","message":"${mixed}"}`,
+  ]);
+  const turn = await runTurn([user('Csütörtökre vagy péntekre kérnék asztalt 36 főre.')], model);
+
+  assert.equal(turn.message, mixed, 'a mixed answer contains a legitimate negative — never blocked');
+  assert.equal(model.calls.length, 3);
+});
+
+test('contradiction guard: stays off when no tool ran in the turn', async () => {
+  const noToolApology =
+    'Sajnálom, erre a kérdésre nem tudok válaszolni — kizárólag foglalásban tudok segíteni.';
+  const model = scriptedModel([`{"type":"say","message":"${noToolApology}"}`]);
+  const turn = await runTurn([user('Milyen idő lesz holnap?')], model);
+
+  assert.equal(turn.message, noToolApology);
+  assert.equal(model.calls.length, 1);
+});
+
+test('contradiction guard: stays off when the booking itself failed', async () => {
+  const date = daysFromToday(9);
+  assert.equal((await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 45)).success, true);
+  const failApology = 'Sajnálattal közlöm, hogy a foglalást nem sikerült rögzítenünk.';
+  const model = scriptedModel([
+    `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","email":"vendeg@example.com","date":"${date}","time":"20:00","guests":36}}`,
+    `{"type":"say","message":"${failApology}"}`,
+  ]);
+  const turn = await runTurn([user('Kovács Anna, +36301234567 — foglalja le kérem.')], model);
+
+  assert.equal(turn.toolCalls[0].result.success, false, 'precondition: the booking really failed');
+  assert.equal(turn.message, failApology, 'a failed booking may (and must) be apologised for');
   assert.equal(model.calls.length, 2);
+});
+
+test('contradiction guard e2e: self-contradiction is re-prompted and the guest gets a clean confirmation', async () => {
+  const date = daysFromToday(10);
+  const clean =
+    'Örömmel! Szombat estére a harminchat fő számára van helyünk. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot.';
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
+    '{"type":"say","message":"Sajnálattal közlöm, hogy a harminchat fő számára nem tudjuk biztosítani a helyet, mivel a maximum ötven fő. Kérem, erősítse meg a foglalást."}',
+    `{"type":"say","message":"${clean}"}`,
+  ]);
+  const turn = await runTurn([user('Harminchat főre kérnénk asztalt szombat estére.')], model);
+
+  assert.equal(turn.message, clean);
+  assert.equal(turn.error, undefined);
+  assert.doesNotMatch(turn.message, /sajnálattal|nem tudjuk/i, 'the contradiction never reaches the guest');
+  assert.equal(turn.toolCalls[0].result.available, true);
+  assert.match(model.calls[2].suffix, /the requested party FITS/, 'the retry carried the contradiction reminder');
+});
+
+test('contradiction guard e2e: a stubbornly refusing model degrades gracefully instead of leaking the contradiction', async () => {
+  const date = daysFromToday(11);
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
+    '{"type":"say","message":"Sajnálattal közlöm, hogy nem tudjuk fogadni Önöket harminchat fővel. Kérem, erősítse meg a foglalást."}',
+  ]);
+  const turn = await runTurn([user('Harminchat főre kérnénk asztalt.')], model);
+
+  assert.equal(turn.error, true);
+  assert.match(turn.message, /megszakadt a kapcsolat/, 'the existing graceful fallback is reused');
+  assert.doesNotMatch(turn.message, /sajnálattal közlöm|nem tudjuk fogadni/i);
+  assert.equal(model.calls.length, 4, 'initial + 2 forced retries, the shared safety-net budget');
+});
+
+test('contradiction guard e2e: a correct first reply passes through with NO extra model call', async () => {
+  const date = daysFromToday(12);
+  const clean =
+    'Örömmel! Van helyünk a harminchat fő számára. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot.';
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
+    `{"type":"say","message":"${clean}"}`,
+  ]);
+  const turn = await runTurn([user('Harminchat főre kérnénk asztalt.')], model);
+
+  assert.equal(turn.message, clean);
+  assert.equal(model.calls.length, 2, 'exactly the tool call + the reply — the guard costs nothing when unneeded');
+});
+
+test('contradiction guard e2e: exactly-fits boundary (36 requested, exactly 36 free) is confirmed', async () => {
+  const date = daysFromToday(13);
+  assert.equal((await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 14)).success, true);
+  const clean = 'Örömmel! A harminchat fő számára pontosan van helyünk arra az estére.';
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
+    `{"type":"say","message":"${clean}"}`,
+  ]);
+  const turn = await runTurn([user('Harminchat főre kérnénk asztalt.')], model);
+
+  assert.equal(turn.toolCalls[0].result.available, true);
+  assert.equal(turn.toolCalls[0].result.remainingCapacity, 36);
+  assert.equal(turn.message, clean);
+});
+
+// ---------------------------------------------------------------------------
+// FALSE ACCEPTANCE — the production incident: 24 guests already booked for
+// Sunday; the guest's first message ("vasarnap este 9, 30 fore") was read by
+// the model as 9 guests, the tool legitimately said yes for 9, and when the
+// guest CORRECTED the party to 30 the model restated its earlier yes without
+// running any tool. 24 + 30 = 54 was confirmed against a 50-seat room.
+// ---------------------------------------------------------------------------
+
+function nextSunday(): string {
+  return nextDow(0);
+}
+
+test('statedPartySizes reads head counts only — never a time, a price or a date', () => {
+  assert.deepEqual(statedPartySizes('Vasárnap estére a harminc fő számára van helyünk.'), [30]);
+  assert.deepEqual(statedPartySizes('van helyünk a 9 fő számára'), [9]);
+  assert.deepEqual(statedPartySizes('We have room for thirty-six guests.'), [36]);
+  assert.deepEqual(statedPartySizes('Tenemos sitio para treinta comensales.'), [30]);
+  assert.deepEqual(
+    statedPartySizes('Vasárnap 21:00-ra, a foglaláshoz 275,59 € előleg tartozik.'),
+    [],
+    'a seating time and a deposit must never be read as a party size',
+  );
+});
+
+test('claimsAvailability never reads a negated phrasing as an affirmation', () => {
+  assert.equal(claimsAvailability('Vasárnap estére van helyünk a harminc fő számára.'), true);
+  assert.equal(claimsAvailability('Sajnálattal közlöm, hogy nincs helyünk harminc főre.'), false);
+  assert.equal(claimsAvailability('Sajnos nem tudjuk fogadni Önöket harminc fővel.'), false);
+  assert.equal(claimsAvailability('Kérem, ossza meg velünk a teljes nevét és egy telefonszámot.'), false);
+});
+
+test('REGRESSION false acceptance: a corrected party size is never confirmed from an earlier check', async () => {
+  const sunday = nextSunday();
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', 'vendeg@example.com', sunday, '20:00', 24)).success, true);
+
+  // Round 1: the model mis-parses "este 9" as the party size; the tool
+  // legitimately confirms 9 guests, so this reply is properly backed.
+  const round1 = await runTurn(
+    [user('vasarnap este 9, 30 fore')],
+    scriptedModel([
+      `{"type":"tool","name":"check_availability","input":{"date":"${sunday}","time":"21:00","guests":9}}`,
+      '{"type":"say","message":"Örömmel! Vasárnap estére van helyünk a 9 fő számára. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot."}',
+    ]),
+  );
+  assert.match(round1.message, /9 fő/, 'precondition: round 1 confirmed the mis-parsed 9');
+
+  // Round 2: the guest corrects the party to 30. The model reuses its earlier
+  // yes and runs no tool at all — exactly what happened in production.
+  const round2Model = scriptedModel([
+    '{"type":"say","message":"Örömmel! Vasárnap estére a harminc fő számára van helyünk. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot."}',
+  ]);
+  const round2 = await runTurn(
+    [
+      user('vasarnap este 9, 30 fore'),
+      { role: 'assistant', content: round1.message },
+      user('nem, ugy ertettem hogy vasarnap este 21:00-ra 30 fo reszere szeretnek asztalt foglalni'),
+    ],
+    round2Model,
+  );
+
+  assert.doesNotMatch(round2.message, /van helyünk|harminc fő számára/i, 'the false acceptance must never reach the guest');
+  assert.equal(round2.error, true, 'it degrades gracefully instead');
+  assert.match(round2Model.calls[1].suffix, /check_availability/, 'the retry ordered a real check');
+  assert.equal(
+    (await checkAvailability(sunday, '21:00', 30)).available,
+    false,
+    'and the truth is unchanged: 24 + 30 = 54 > 50',
+  );
+});
+
+test('false-acceptance net: when the model complies on retry, the guest gets the correct refusal', async () => {
+  const sunday = nextSunday();
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', 'vendeg@example.com', sunday, '20:00', 24)).success, true);
+
+  const model = scriptedModel([
+    // 1st: unbacked claim → blocked, reminder sent
+    '{"type":"say","message":"Örömmel! Vasárnap estére a harminc fő számára van helyünk."}',
+    // 2nd: complies and runs the real check
+    `{"type":"tool","name":"check_availability","input":{"date":"${sunday}","time":"21:00","guests":30}}`,
+    // 3rd: relays the true result
+    '{"type":"say","message":"Sajnálattal közlöm, hogy arra az estére már csak huszonhat szabad helyünk maradt."}',
+  ]);
+  const turn = await runTurn([user('vasárnap 21:00-ra 30 főre kérnék asztalt')], model);
+
+  assert.equal(turn.toolCalls.length, 1);
+  assert.equal(turn.toolCalls[0].result.available, false);
+  assert.equal(turn.toolCalls[0].result.remainingCapacity, 26);
+  assert.match(turn.message, /huszonhat/, 'the guest is told the real remaining capacity');
+  assert.equal(turn.error, undefined);
+});
+
+test('false-acceptance net: a claim for a party size that was never checked is blocked', async () => {
+  const date = daysFromToday(4);
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"21:00","guests":9}}`,
+    // checked 9, but confirms 30 — the exact shape of the production slip
+    '{"type":"say","message":"Örömmel! Van helyünk a harminc fő számára."}',
+  ]);
+  const turn = await runTurn([user('30 főre kérnék asztalt')], model);
+
+  assert.doesNotMatch(turn.message, /harminc fő/i);
+  assert.equal(turn.error, true);
+  assert.match(model.calls[2].suffix, /party size the guest actually asked for/);
+});
+
+test('false-acceptance net: a properly backed confirmation passes through with NO extra model call', async () => {
+  const date = daysFromToday(5);
+  const clean = 'Örömmel! Van helyünk a harminc fő számára. Kérem, ossza meg velünk a teljes nevét és egy telefonszámot.';
+  const model = scriptedModel([
+    `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"21:00","guests":30}}`,
+    `{"type":"say","message":"${clean}"}`,
+  ]);
+  const turn = await runTurn([user('30 főre kérnék asztalt')], model);
+
+  assert.equal(turn.message, clean);
+  assert.equal(model.calls.length, 2, 'the net costs nothing when the claim is evidenced');
+});
+
+test('false-acceptance net: stays off for replies that assert nothing about availability', async () => {
+  const question = 'Kérem, ossza meg velünk, melyik estére és hány főre foglalhatunk.';
+  const model = scriptedModel([`{"type":"say","message":"${question}"}`]);
+  const turn = await runTurn([user('Szeretnék asztalt foglalni.')], model);
+
+  assert.equal(turn.message, question);
+  assert.equal(model.calls.length, 1);
 });

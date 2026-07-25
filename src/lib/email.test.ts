@@ -40,8 +40,8 @@ const ENV_KEYS = [
   'EMAILJS_TEMPLATE_ID',
 ] as const;
 
-beforeEach(() => {
-  resetBookings();
+beforeEach(async () => {
+  await resetBookings();
   process.env.EMAILJS_SERVICE_ID = 'service_test';
   process.env.EMAILJS_PUBLIC_KEY = 'public_test';
   process.env.EMAILJS_PRIVATE_KEY = 'private_test';
@@ -151,7 +151,7 @@ test('a successful booking automatically e-mails the guest the full confirmation
   __setEmailTransportForTests(transport);
   const date = daysFromToday(2);
 
-  const result = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 36);
+  const result = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 36);
   assert.equal(result.success, true);
   await tick();
 
@@ -177,7 +177,7 @@ test('the stored address is the NORMALISED one, so the confirmation reaches a di
   const { sent, transport } = captureTransport();
   __setEmailTransportForTests(transport);
 
-  const result = bookTable('Kovács Anna', '+36301234567', '  MAILTO:Anna@Example.HU ', daysFromToday(2), '21:00', 4);
+  const result = await bookTable('Kovács Anna', '+36301234567', '  MAILTO:Anna@Example.HU ', daysFromToday(2), '21:00', 4);
   assert.equal(result.success, true);
   await tick();
   assert.equal(sent[0].params.to_email, 'anna@example.hu');
@@ -188,7 +188,7 @@ test('an unusable e-mail is rejected as invalid_email — no booking, no seats t
   __setEmailTransportForTests(transport);
   const date = daysFromToday(2);
 
-  const result = bookTable('Kovács Anna', '+36301234567', 'nem-email', date, '21:00', 10);
+  const result = await bookTable('Kovács Anna', '+36301234567', 'nem-email', date, '21:00', 10);
   assert.equal(result.success, false);
   assert.match(result.reason ?? '', /invalid_email/);
   assert.equal(result.confirmationCode, undefined);
@@ -196,7 +196,7 @@ test('an unusable e-mail is rejected as invalid_email — no booking, no seats t
   assert.equal(sent.length, 0, 'a rejected booking must not send anything');
 
   // The seats were never consumed by the failed attempt.
-  const ok = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 50);
+  const ok = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 50);
   assert.equal(ok.success, true, 'all 50 seats were still free');
 });
 
@@ -205,7 +205,7 @@ test('a failed e-mail NEVER fails the booking (delivery is best-effort)', async 
     throw new Error('EmailJS HTTP 402: quota exceeded');
   });
 
-  const result = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(2), '21:00', 4);
+  const result = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(2), '21:00', 4);
   await tick();
   assert.equal(result.success, true, 'the reservation is committed regardless of mail delivery');
   assert.match(String(result.confirmationCode), /^EP-\d{4}$/);
@@ -226,11 +226,11 @@ test('cancelling a booking e-mails BOTH the guest and the restaurant, with the c
   __setEmailTransportForTests(transport);
   const date = daysFromToday(3);
 
-  const booked = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 12);
+  const booked = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 12);
   await tick();
   sent.length = 0; // drop the confirmation; this test is about the cancellation
 
-  const cancelled = cancelBooking(booked.confirmationCode!);
+  const cancelled = await cancelBooking(booked.confirmationCode!);
   assert.equal(cancelled.success, true);
   await tick();
 
@@ -251,10 +251,10 @@ test('cancelling a booking e-mails BOTH the guest and the restaurant, with the c
   }
 });
 
-test('cancelBooking returns the guest details the notice was built from', () => {
+test('cancelBooking returns the guest details the notice was built from', async () => {
   const date = daysFromToday(3);
-  const booked = bookTable('Nagy Péter', '+36201112233', 'peter@example.hu', date, '20:00', 8);
-  const cancelled = cancelBooking(booked.confirmationCode!);
+  const booked = await bookTable('Nagy Péter', '+36201112233', 'peter@example.hu', date, '20:00', 8);
+  const cancelled = await cancelBooking(booked.confirmationCode!);
 
   assert.equal(cancelled.success, true);
   assert.equal(cancelled.name, 'Nagy Péter');
@@ -271,11 +271,11 @@ test('the restaurant is still notified even if the guest send fails', async () =
     sent.push({ templateId, params });
   });
 
-  const booked = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(3), '21:00', 12);
+  const booked = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(3), '21:00', 12);
   await tick();
   sent.length = 0; // drop the booking confirmation
 
-  const cancelled = cancelBooking(booked.confirmationCode!);
+  const cancelled = await cancelBooking(booked.confirmationCode!);
   await tick();
 
   assert.equal(cancelled.success, true, 'the cancellation itself always succeeds');
@@ -287,7 +287,7 @@ test('an unknown code cancels nothing and notifies nobody', async () => {
   const { sent, transport } = captureTransport();
   __setEmailTransportForTests(transport);
 
-  const result = cancelBooking('EP-9999');
+  const result = await cancelBooking('EP-9999');
   await tick();
   assert.equal(result.success, false);
   assert.match(result.reason ?? '', /unknown_code/);
@@ -315,11 +315,11 @@ test('modifying a booking keeps the contact details, so a later cancellation sti
   const { sent, transport } = captureTransport();
   __setEmailTransportForTests(transport);
 
-  const booked = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(3), '21:00', 12);
-  assert.equal(modifyBooking(booked.confirmationCode!, 20).success, true);
+  const booked = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(3), '21:00', 12);
+  assert.equal((await modifyBooking(booked.confirmationCode!, 20)).success, true);
   sent.length = 0;
 
-  cancelBooking(booked.confirmationCode!);
+  await cancelBooking(booked.confirmationCode!);
   await tick();
 
   const guest = sent.find((s) => s.params.to_email === 'anna@example.hu');
@@ -334,7 +334,7 @@ test('without EmailJS credentials the booking still succeeds and nothing is sent
   for (const key of ENV_KEYS) delete process.env[key];
   assert.equal(isEmailConfigured(), false);
 
-  const result = bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(2), '21:00', 4);
+  const result = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(2), '21:00', 4);
   await tick();
   assert.equal(result.success, true);
   assert.equal(await notifyBookingConfirmed(details), false);
