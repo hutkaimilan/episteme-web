@@ -190,7 +190,14 @@ export default function ReservationSection() {
       }
 
       setTranscript((prev) => [...prev, { role: 'assistant', content: data.message }]);
-    } catch {
+    } catch (err) {
+      // The request never produced a usable response: the fetch itself failed
+      // (network/abort) or the route answered non-2xx (e.g. a Vercel function
+      // timeout returns 504). Log it — this catch used to swallow the error
+      // silently, which is why a production incident left no trace anywhere:
+      // nothing in the browser console, and nothing conclusive in the Vercel
+      // logs either. The guest-visible text stays exactly as before.
+      console.error('[CHAT_CLIENT_ERROR] /api/chat request failed:', err);
       setActivePill(null);
       setTranscript((prev) => [
         ...prev,

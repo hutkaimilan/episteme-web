@@ -14,6 +14,15 @@ import { callGroqApi } from '@/lib/groqClient';
  * codes exist only there.
  */
 
+// One guest turn can legitimately need several model calls (tool loop, plus
+// the safety-net retries) and, on a Groq 429, a backoff wait of up to 15s.
+// Vercel's DEFAULT function limit is 10s, which such a turn can exceed — the
+// platform then kills the invocation and the browser gets a 504, which the
+// client can only report as "the connection dropped". Raising the ceiling
+// lets a slow-but-healthy turn finish instead of being truncated mid-flight
+// (Vercel clamps this to whatever the plan allows).
+export const maxDuration = 60;
+
 const MODEL = 'llama-3.3-70b-versatile';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
