@@ -16,7 +16,7 @@ export const privacyContent: Record<Lang, LegalContent> = {
       {
         heading: '1. Az adatkezelő',
         body: [
-          'Adatkezelő: EPISTEME (a továbbiakban: „Étterem”). Székhely: Budapest, Kossuth Lajos tér 14. Kapcsolat: bizniszpappa@gmail.com.',
+          'Adatkezelő: EPISTEME (a továbbiakban: „Étterem”). Székhely: Budapest, Kossuth Lajos tér 14. Kapcsolat: epistemebudapest@gmail.com.',
         ],
       },
       {
@@ -58,7 +58,7 @@ export const privacyContent: Record<Lang, LegalContent> = {
       {
         heading: '1. Data controller',
         body: [
-          'Controller: EPISTEME (hereinafter the “Restaurant”). Registered address: Budapest, Kossuth Lajos Square 14. Contact: bizniszpappa@gmail.com.',
+          'Controller: EPISTEME (hereinafter the “Restaurant”). Registered address: Budapest, Kossuth Lajos Square 14. Contact: epistemebudapest@gmail.com.',
         ],
       },
       {
@@ -100,7 +100,7 @@ export const privacyContent: Record<Lang, LegalContent> = {
       {
         heading: '1. Responsable del tratamiento',
         body: [
-          'Responsable: EPISTEME (en adelante, el «Restaurante»). Domicilio: Budapest, Plaza Kossuth Lajos 14. Contacto: bizniszpappa@gmail.com.',
+          'Responsable: EPISTEME (en adelante, el «Restaurante»). Domicilio: Budapest, Plaza Kossuth Lajos 14. Contacto: epistemebudapest@gmail.com.',
         ],
       },
       {
@@ -146,7 +146,7 @@ export const imprintContent: Record<Lang, LegalContent> = {
         body: [
           'Név: EPISTEME',
           'Cím: Budapest, Kossuth Lajos tér 14',
-          'E-mail: bizniszpappa@gmail.com',
+          'E-mail: epistemebudapest@gmail.com',
         ],
       },
       {
@@ -171,7 +171,7 @@ export const imprintContent: Record<Lang, LegalContent> = {
         body: [
           'Name: EPISTEME',
           'Address: Budapest, Kossuth Lajos Square 14',
-          'E-mail: bizniszpappa@gmail.com',
+          'E-mail: epistemebudapest@gmail.com',
         ],
       },
       {
@@ -196,7 +196,7 @@ export const imprintContent: Record<Lang, LegalContent> = {
         body: [
           'Nombre: EPISTEME',
           'Dirección: Budapest, Plaza Kossuth Lajos 14',
-          'Correo electrónico: bizniszpappa@gmail.com',
+          'Correo electrónico: epistemebudapest@gmail.com',
         ],
       },
       {

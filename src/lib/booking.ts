@@ -6,7 +6,7 @@
  * per evening (no table turnover). Opening hours Mon–Fri 20:00–00:00,
  * Sat–Sun 20:00–01:00 (last seating one hour before close). Deposit
  * 275,59 € per reservation, no minimum spend, no dress code. Contact
- * bizniszpappa@gmail.com. Confirmation codes are EP-XXXX (4 digits),
+ * epistemebudapest@gmail.com. Confirmation codes are EP-XXXX (4 digits),
  * ALWAYS generated here — the model only ever relays one it received back.
  *
  * CAPACITY MODEL — DATE-based, never time-slot-based: a table booked at

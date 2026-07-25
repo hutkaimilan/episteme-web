@@ -58,7 +58,7 @@ export type Dish = {
 };
 
 ## 4. Étterem-adatok (kanonikus)
-- Név: EPISTEME. Cím: Budapest, Kossuth Lajos tér 14. E-mail: bizniszpappa@gmail.com
+- Név: EPISTEME. Cím: Budapest, Kossuth Lajos tér 14. E-mail: epistemebudapest@gmail.com
 - Nyitvatartás: H–P 20:00–00:00, Szo–V 20:00–01:00. Kapacitás: 50 fő. Terek: terasz, rooftop bar, beltéri fő étterem.
 - Foglalási előleg: 275,59 € / foglalás. Nincs minimum költés, nincs dress code, bárki foglalhat.
 - Agent hangnem: magázódás kötelező, minden nyelven a formális regiszter.

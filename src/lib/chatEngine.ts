@@ -149,9 +149,9 @@ export function detectLang(text: string): 'hu' | 'en' | 'es' {
 // code — it apologises and points to a real contact. A candid "please try
 // again / reach us here" beats a fabricated confirmation every time.
 const FALLBACK: Record<'hu' | 'en' | 'es', string> = {
-  hu: 'Elnézését kérem, egy pillanatra megszakadt a kapcsolat a foglalási rendszerünkkel. Kérem, próbálja meg ismét néhány pillanat múlva — ha sürgős, munkatársaink a bizniszpappa@gmail.com címen készséggel állnak rendelkezésére.',
-  en: 'My apologies — our reservation system is momentarily unavailable. Please try again in a few moments; if it is urgent, our team will gladly assist you at bizniszpappa@gmail.com.',
-  es: 'Le ruego me disculpe: nuestro sistema de reservas no está disponible por un instante. Inténtelo de nuevo en unos momentos; si es urgente, nuestro equipo le atenderá con mucho gusto en bizniszpappa@gmail.com.',
+  hu: 'Elnézését kérem, egy pillanatra megszakadt a kapcsolat a foglalási rendszerünkkel. Kérem, próbálja meg ismét néhány pillanat múlva — ha sürgős, munkatársaink a epistemebudapest@gmail.com címen készséggel állnak rendelkezésére.',
+  en: 'My apologies — our reservation system is momentarily unavailable. Please try again in a few moments; if it is urgent, our team will gladly assist you at epistemebudapest@gmail.com.',
+  es: 'Le ruego me disculpe: nuestro sistema de reservas no está disponible por un instante. Inténtelo de nuevo en unos momentos; si es urgente, nuestro equipo le atenderá con mucho gusto en epistemebudapest@gmail.com.',
 };
 
 export function fallbackMessage(history: ChatMessage[]): string {

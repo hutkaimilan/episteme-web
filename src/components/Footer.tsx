@@ -60,10 +60,10 @@ export default function Footer() {
             {t('footer.contactLabel')}
           </p>
           <a
-            href="mailto:bizniszpappa@gmail.com"
+            href="mailto:epistemebudapest@gmail.com"
             className="text-ivory-muted transition-colors duration-500 hover:text-gold-bright"
           >
-            bizniszpappa@gmail.com
+            epistemebudapest@gmail.com
           </a>
           <div className="mt-6">
             <a

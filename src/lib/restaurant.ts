@@ -13,5 +13,5 @@ export const RESTAURANT = {
   address: 'Budapest, Kossuth Lajos tér 14',
   capacity: 50,
   depositEur: '275,59 €',
-  contactEmail: 'bizniszpappa@gmail.com',
+  contactEmail: 'epistemebudapest@gmail.com',
 } as const;

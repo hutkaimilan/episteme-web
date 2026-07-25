@@ -108,7 +108,7 @@ test('renderConfirmationParams carries every detail the guest confirmation must 
   assert.equal(p.confirmation_code, 'EP-1234');
   assert.equal(p.deposit, '275,59 €');
   assert.equal(p.restaurant_address, 'Budapest, Kossuth Lajos tér 14');
-  assert.equal(p.restaurant_email, 'bizniszpappa@gmail.com');
+  assert.equal(p.restaurant_email, 'epistemebudapest@gmail.com');
 });
 
 test('renderCancellationParams carries the cancelled booking and when it happened', () => {
@@ -218,7 +218,7 @@ test('cancelling a booking e-mails BOTH the guest and the restaurant, with the c
   assert.ok(restaurant, 'the restaurant was notified');
 
   assert.equal(guest.params.to_email, 'anna@example.hu');
-  assert.equal(restaurant.params.to_email, 'bizniszpappa@gmail.com');
+  assert.equal(restaurant.params.to_email, 'epistemebudapest@gmail.com');
 
   // Both carry which reservation was cancelled, and when.
   for (const s of sent) {
@@ -286,7 +286,7 @@ test('notifyBookingCancelled still reaches the restaurant when the stored addres
   assert.equal(outcome.guest, false);
   assert.equal(outcome.restaurant, true);
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].params.to_email, 'bizniszpappa@gmail.com');
+  assert.equal(sent[0].params.to_email, 'epistemebudapest@gmail.com');
 });
 
 test('modifying a booking keeps the contact details, so a later cancellation still reaches the guest', async () => {

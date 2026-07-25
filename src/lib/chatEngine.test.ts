@@ -179,7 +179,7 @@ test('model backend error → graceful localized fallback, error flag set, no fa
   const result = await runTurn([user('Szeretnék asztalt foglalni holnap estére.')], throwing);
   assert.equal(result.error, true);
   assert.equal(result.message, fallbackMessage([user('Szeretnék asztalt foglalni holnap estére.')]));
-  assert.match(result.message, /bizniszpappa@gmail\.com/); // human contact, not a made-up code
+  assert.match(result.message, /epistemebudapest@gmail\.com/); // human contact, not a made-up code
   assert.equal(result.toolCalls.length, 0);
 });
 
