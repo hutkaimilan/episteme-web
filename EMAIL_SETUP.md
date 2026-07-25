@@ -10,7 +10,7 @@ ugyanúgy működik, csak a levélküldés kimarad, és a szerver logba egy
 ## Miért szerver-oldali?
 
 Az oldalon eddig is volt EmailJS, de a `@emailjs/browser` csomag **kizárólag a
-vendég böngészőjében** fut. Ez a mostani két igényhez kevés:
+vendég böngészőjében** fut. Ez a két funkcióhoz kevés:
 
 - a **lemondási értesítő** akkor is ki kell menjen, ha a lemondás a Retell
   hangasszisztensen keresztül érkezik — ott nincs böngésző;
@@ -21,6 +21,19 @@ Az EmailJS erre fel van készítve: van REST API-ja, amit szerverről is lehet
 hívni, ha a **privát kulcsot** küldjük `accessToken`-ként, és engedélyezve van a
 nem-böngészős hozzáférés. Így a meglévő EmailJS fiókod és service-ed marad,
 csak a szerver hajtja meg. Nem kell másik szolgáltatóra váltani.
+
+## Miért csak EGY sablon?
+
+Az EmailJS ingyenes csomagja egyetlen sablont enged. Ezért a dashboardban lévő
+sablon szándékosan "buta": mindössze három változót renderel —
+`{{to_email}}`, `{{subject}}` és `{{message_body}}`. **Mindkét levél teljes
+szövegét a kód állítja össze** (`src/lib/email.ts`,
+`renderConfirmationEmail` / `renderCancellationEmail`), a behelyettesített
+adatokkal együtt.
+
+Ez egyben előny is: a levelek szövege verziókövetve van, tesztek ellenőrzik, és
+a git historyban látszik minden változtatás — nem egy dashboardban él, amit
+nem lehet diffelni.
 
 ---
 
@@ -38,73 +51,81 @@ csak a szerver hajtja meg. Nem kell másik szolgáltatóra váltani.
 > Enélkül minden szerverről indított küldés `403 API calls are disabled for
 > non-browser applications` hibával áll meg. Ez a leggyakoribb hibaforrás.
 
-## 3. lépés — Két új sablon létrehozása
+## 3. lépés — Az EGY közös sablon beállítása
 
-Nyisd meg: https://dashboard.emailjs.com/admin/templates → **Create New Template**
+Nyisd meg: https://dashboard.emailjs.com/admin/templates — használhatod a már
+meglévő sablonodat, nem kell újat létrehozni.
 
-Mindkét sablonnál **a legfontosabb**: a **To Email** mezőbe `{{to_email}}`
-kerüljön (ne fix cím!), mert a kód innen irányítja a levelet a vendégnek,
-illetve az étteremnek.
+Állítsd be a mezőket **pontosan** így:
 
-### 3/a — Visszaigazoló sablon (foglaláskor)
+| Mező          | Érték                |
+| ------------- | -------------------- |
+| **To Email**  | `{{to_email}}`       |
+| **Subject**   | `{{subject}}`        |
+| **Content**   | `{{message_body}}`   |
 
-- **Név**: pl. `EPISTEME – foglalás visszaigazolása`
-- **To Email**: `{{to_email}}`
-- **Subject**: pl. `EPISTEME – foglalás visszaigazolása ({{confirmation_code}})`
-- **Content** (példa, szabadon formázható):
+A **Content** mezőben tényleg csak ez az egy változó legyen, más semmi. A
+tartalom formázását (sortörések, megszólítás, adatok) a kód végzi.
 
-```
-Tisztelt {{guest_name}}!
+> **Fontos**: a **To Email** mezőbe `{{to_email}}` kerüljön, ne fix cím! A kód
+> innen irányítja a levelet hol a vendégnek, hol az étteremnek. Ha fix cím
+> marad, a lemondási értesítő nem fog eljutni a vendéghez.
 
-Örömmel visszaigazoljuk asztalfoglalását az EPISTEME étterembe.
+Ha a sablon szerkesztője HTML módban van, a sortörések megtartásához tedd a
+változót egy `<pre>` blokkba, vagy kapcsold a sablont sima szöveges módra:
 
-Foglalási kód: {{confirmation_code}}
-Dátum: {{reservation_date}}
-Időpont: {{reservation_time}}
-Létszám: {{guest_count}} fő
-Előleg: {{deposit}}
-
-Cím: {{restaurant_address}}
-Kapcsolat: {{restaurant_email}}
-
-Tisztelettel,
-{{restaurant_name}}
+```html
+<pre style="font-family: inherit; white-space: pre-wrap;">{{message_body}}</pre>
 ```
 
-Elérhető változók: `to_email`, `guest_name`, `guest_email`, `guest_phone`,
-`reservation_date`, `reservation_time`, `guest_count`, `confirmation_code`,
-`deposit`, `restaurant_name`, `restaurant_address`, `restaurant_email`.
+Mentés után másold ki a **Template ID**-t (`template_...`).
 
-### 3/b — Lemondási sablon (lemondáskor)
+### Amit a kód küld
 
-- **Név**: pl. `EPISTEME – foglalás lemondva`
-- **To Email**: `{{to_email}}`
-- **Subject**: pl. `EPISTEME – lemondott foglalás ({{confirmation_code}})`
-- **Content** (példa):
+**Foglaláskor** — tárgy: `Foglalás visszaigazolása — EPISTEME`
 
 ```
-Tisztelt Címzett!
+Kedves Kovács Anna!
 
-Az alábbi foglalás lemondásra került.
+Köszönjük foglalását az EPISTEME étterembe. Az alábbi részleteket rögzítettük:
 
-Foglalási kód: {{confirmation_code}}
-Név: {{guest_name}}
-Dátum: {{reservation_date}}
-Időpont: {{reservation_time}}
-Létszám: {{guest_count}} fő
-Lemondás időpontja: {{cancelled_at}}
+Dátum: 2026-07-30
+Időpont: 21:00
+Létszám: 36 fő
+Foglalási kód: EP-1234
+Előleg: 275,59 €
 
-Kapcsolat: {{restaurant_email}}
+Cím: Budapest, Kossuth Lajos tér 14
 
-Tisztelettel,
-{{restaurant_name}}
+Kérdés esetén keressen minket: epistemebudapest@gmail.com
+
+Várjuk szeretettel!
+EPISTEME
 ```
 
-A `{{recipient_role}}` változó értéke `guest` vagy `restaurant` — ha szeretnél,
-ezzel meg tudod különböztetni a két példányt (pl. a vendégnek szóló változatban
-más a megszólítás), de nem kötelező használni.
+**Lemondáskor** — tárgy: `Foglalás lemondva — EPISTEME` (ugyanez a levél megy
+a vendégnek ÉS az étteremnek is)
 
-Mindkét sablon mentése után másold ki a **Template ID**-t (`template_...`).
+```
+Kedves Kovács Anna!
+
+Az alábbi foglalás lemondásra került:
+
+Foglalási kód: EP-1234
+Dátum: 2026-07-30
+Időpont: 21:00
+Létszám: 36 fő
+
+Lemondás időpontja: 2026. 07. 25. 12:00
+
+Amennyiben ez tévedés, kérjük vegye fel velünk a kapcsolatot: epistemebudapest@gmail.com
+
+EPISTEME
+```
+
+A szövegek módosításához a `src/lib/email.ts` fájlban a
+`renderConfirmationEmail` / `renderCancellationEmail` függvényeket kell
+átírni — a dashboardhoz nem kell hozzányúlni.
 
 ## 4. lépés — Környezeti változók beállítása
 
@@ -114,9 +135,8 @@ Mindkét sablon mentése után másold ki a **Template ID**-t (`template_...`).
 ```
 EMAILJS_SERVICE_ID=service_vk94auf
 EMAILJS_PUBLIC_KEY=bI2mj0KaJZMJnD6Lq
-EMAILJS_PRIVATE_KEY=<a 2. lépésben kimásolt privát kulcs>
-EMAILJS_TEMPLATE_CONFIRMATION=<a 3/a sablon Template ID-ja>
-EMAILJS_TEMPLATE_CANCELLATION=<a 3/b sablon Template ID-ja>
+EMAILJS_PRIVATE_KEY=<az 1. lépésben kimásolt privát kulcs>
+EMAILJS_TEMPLATE_ID=<a 3. lépésben beállított sablon Template ID-ja>
 ```
 
 > A `EMAILJS_PRIVATE_KEY` **titkos** — soha ne kerüljön kliens-oldali kódba és
@@ -145,8 +165,11 @@ foglaláskor a régi `template_nezbzjh` sablonnal, a böngészőből. Ezt
 sablonban van beállítva) — ha az étteremnek szól, akkor a mostani két új levél
 mellett hasznos kiegészítés marad.
 
-Ha viszont az a sablon is a **vendégnek** küld, akkor a vendég két
-visszaigazolást fog kapni. Ilyenkor a régit így lehet kikapcsolni: a
-`ReservationSection.tsx`-ben töröld a `void sendConfirmationEmail(call);` sort
-(és utána a fölöslegessé váló `sendConfirmationEmail` függvényt, az `emailjs`
-importot és az `emailFailed` state-et). Szólj, és megcsinálom.
+Figyelem: mivel most **egyetlen** sablon van, valószínű, hogy ez ugyanaz a
+sablon, amit a 3. lépésben átállítottál `{{message_body}}`-ra. Ebben az esetben
+a kliens-oldali küldés üres levelet fog küldeni (a régi változóneveit —
+`guest_name`, `confirmation_code` stb. — a sablon már nem tartalmazza). Ilyenkor
+a régit érdemes kikapcsolni: a `ReservationSection.tsx`-ben töröld a
+`void sendConfirmationEmail(call);` sort (és utána a fölöslegessé váló
+`sendConfirmationEmail` függvényt, az `emailjs` importot és az `emailFailed`
+state-et). Szólj, és megcsinálom.

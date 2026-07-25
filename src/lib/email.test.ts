@@ -2,8 +2,8 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeEmail,
-  renderCancellationParams,
-  renderConfirmationParams,
+  renderCancellationEmail,
+  renderConfirmationEmail,
   notifyBookingConfirmed,
   notifyBookingCancelled,
   isEmailConfigured,
@@ -37,8 +37,7 @@ const ENV_KEYS = [
   'EMAILJS_SERVICE_ID',
   'EMAILJS_PUBLIC_KEY',
   'EMAILJS_PRIVATE_KEY',
-  'EMAILJS_TEMPLATE_CONFIRMATION',
-  'EMAILJS_TEMPLATE_CANCELLATION',
+  'EMAILJS_TEMPLATE_ID',
 ] as const;
 
 beforeEach(() => {
@@ -46,8 +45,7 @@ beforeEach(() => {
   process.env.EMAILJS_SERVICE_ID = 'service_test';
   process.env.EMAILJS_PUBLIC_KEY = 'public_test';
   process.env.EMAILJS_PRIVATE_KEY = 'private_test';
-  process.env.EMAILJS_TEMPLATE_CONFIRMATION = 'template_confirm';
-  process.env.EMAILJS_TEMPLATE_CANCELLATION = 'template_cancel';
+  process.env.EMAILJS_TEMPLATE_ID = 'template_shared';
 });
 
 afterEach(() => {
@@ -98,28 +96,51 @@ const details = {
   guests: 36,
 };
 
-test('renderConfirmationParams carries every detail the guest confirmation must show', () => {
-  const p = renderConfirmationParams(details);
-  assert.equal(p.to_email, 'anna@example.hu');
-  assert.equal(p.guest_name, 'Kovács Anna');
-  assert.equal(p.reservation_date, '2026-07-30');
-  assert.equal(p.reservation_time, '21:00');
-  assert.equal(p.guest_count, '36');
-  assert.equal(p.confirmation_code, 'EP-1234');
-  assert.equal(p.deposit, '275,59 €');
-  assert.equal(p.restaurant_address, 'Budapest, Kossuth Lajos tér 14');
-  assert.equal(p.restaurant_email, 'epistemebudapest@gmail.com');
+test('renderConfirmationEmail composes the whole guest letter, with every detail spelled out', () => {
+  const { subject, message_body } = renderConfirmationEmail(details);
+
+  assert.equal(subject, 'Foglalás visszaigazolása — EPISTEME');
+  assert.match(message_body, /^Kedves Kovács Anna!/);
+  assert.match(message_body, /Dátum: 2026-07-30/);
+  assert.match(message_body, /Időpont: 21:00/);
+  assert.match(message_body, /Létszám: 36 fő/);
+  assert.match(message_body, /Foglalási kód: EP-1234/);
+  assert.match(message_body, /Előleg: 275,59 €/);
+  assert.match(message_body, /Cím: Budapest, Kossuth Lajos tér 14/);
+  assert.match(message_body, /epistemebudapest@gmail\.com/);
+  assert.match(message_body, /Várjuk szeretettel!\nEPISTEME$/);
 });
 
-test('renderCancellationParams carries the cancelled booking and when it happened', () => {
-  const p = renderCancellationParams({ ...details, cancelledAt: '2026-07-25T10:00:00.000Z' }, 'x@y.hu', 'restaurant');
-  assert.equal(p.to_email, 'x@y.hu');
-  assert.equal(p.recipient_role, 'restaurant');
-  assert.equal(p.confirmation_code, 'EP-1234');
-  assert.equal(p.reservation_date, '2026-07-30');
-  assert.equal(p.guest_count, '36');
-  assert.equal(p.guest_name, 'Kovács Anna');
-  assert.equal(p.cancelled_at, '2026-07-25T10:00:00.000Z');
+test('renderCancellationEmail composes the whole notice, incl. which booking and when', () => {
+  const { subject, message_body } = renderCancellationEmail({
+    ...details,
+    cancelledAt: '2026-07-25T10:00:00.000Z',
+  });
+
+  assert.equal(subject, 'Foglalás lemondva — EPISTEME');
+  assert.match(message_body, /^Kedves Kovács Anna!/);
+  assert.match(message_body, /Az alábbi foglalás lemondásra került:/);
+  assert.match(message_body, /Foglalási kód: EP-1234/);
+  assert.match(message_body, /Dátum: 2026-07-30/);
+  assert.match(message_body, /Időpont: 21:00/);
+  assert.match(message_body, /Létszám: 36 fő/);
+  assert.match(message_body, /Amennyiben ez tévedés/);
+  assert.match(message_body, /epistemebudapest@gmail\.com/);
+});
+
+test('the cancellation timestamp is rendered in Budapest local time, not a raw ISO instant', () => {
+  const { message_body } = renderCancellationEmail({
+    ...details,
+    cancelledAt: '2026-07-25T10:00:00.000Z', // 12:00 in Budapest (CEST)
+  });
+
+  assert.match(message_body, /Lemondás időpontja: 2026\. 07\. 25\. 12:00/);
+  assert.doesNotMatch(message_body, /10:00:00\.000Z/, 'a raw ISO instant must never reach a guest');
+});
+
+test('a malformed timestamp degrades to the raw value instead of crashing the letter', () => {
+  const { message_body } = renderCancellationEmail({ ...details, cancelledAt: 'not-a-date' });
+  assert.match(message_body, /Lemondás időpontja: not-a-date/);
 });
 
 // ---------------------------------------------------------------------------
@@ -135,17 +156,21 @@ test('a successful booking automatically e-mails the guest the full confirmation
   await tick();
 
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].templateId, 'template_confirm');
+  // ONE shared EmailJS template; the letter itself is composed in our code
+  // and handed over as just subject + message_body + to_email.
+  assert.equal(sent[0].templateId, 'template_shared');
   const p = sent[0].params;
+  assert.deepEqual(Object.keys(p).sort(), ['message_body', 'subject', 'to_email']);
   assert.equal(p.to_email, 'anna@example.hu');
-  assert.equal(p.confirmation_code, result.confirmationCode);
-  assert.match(String(p.confirmation_code), /^EP-\d{4}$/);
-  assert.equal(p.reservation_date, date);
-  assert.equal(p.reservation_time, '21:00');
-  assert.equal(p.guest_count, '36');
-  assert.equal(p.deposit, RESTAURANT.depositEur);
-  assert.equal(p.restaurant_address, RESTAURANT.address);
-  assert.equal(p.restaurant_email, RESTAURANT.contactEmail);
+  assert.equal(p.subject, 'Foglalás visszaigazolása — EPISTEME');
+  assert.match(p.message_body, new RegExp(`Foglalási kód: ${result.confirmationCode}`));
+  assert.match(String(result.confirmationCode), /^EP-\d{4}$/);
+  assert.match(p.message_body, new RegExp(`Dátum: ${date}`));
+  assert.match(p.message_body, /Időpont: 21:00/);
+  assert.match(p.message_body, /Létszám: 36 fő/);
+  assert.ok(p.message_body.includes(RESTAURANT.depositEur));
+  assert.ok(p.message_body.includes(RESTAURANT.address));
+  assert.ok(p.message_body.includes(RESTAURANT.contactEmail));
 });
 
 test('the stored address is the NORMALISED one, so the confirmation reaches a dirty-format guest', async () => {
@@ -210,23 +235,19 @@ test('cancelling a booking e-mails BOTH the guest and the restaurant, with the c
   await tick();
 
   assert.equal(sent.length, 2, 'exactly two notices: guest + restaurant');
-  assert.ok(sent.every((s) => s.templateId === 'template_cancel'));
+  assert.ok(sent.every((s) => s.templateId === 'template_shared'));
 
-  const guest = sent.find((s) => s.params.recipient_role === 'guest');
-  const restaurant = sent.find((s) => s.params.recipient_role === 'restaurant');
-  assert.ok(guest, 'the guest was notified');
-  assert.ok(restaurant, 'the restaurant was notified');
-
-  assert.equal(guest.params.to_email, 'anna@example.hu');
-  assert.equal(restaurant.params.to_email, 'epistemebudapest@gmail.com');
+  const recipients = sent.map((s) => s.params.to_email).sort();
+  assert.deepEqual(recipients, ['anna@example.hu', 'epistemebudapest@gmail.com']);
 
   // Both carry which reservation was cancelled, and when.
   for (const s of sent) {
-    assert.equal(s.params.confirmation_code, booked.confirmationCode);
-    assert.equal(s.params.reservation_date, date);
-    assert.equal(s.params.guest_count, '12');
-    assert.equal(s.params.guest_name, 'Kovács Anna');
-    assert.match(s.params.cancelled_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(s.params.subject, 'Foglalás lemondva — EPISTEME');
+    assert.match(s.params.message_body, new RegExp(`Foglalási kód: ${booked.confirmationCode}`));
+    assert.match(s.params.message_body, new RegExp(`Dátum: ${date}`));
+    assert.match(s.params.message_body, /Létszám: 12 fő/);
+    assert.match(s.params.message_body, /Kedves Kovács Anna!/);
+    assert.match(s.params.message_body, /Lemondás időpontja: \d{4}\. \d{2}\. \d{2}\./);
   }
 });
 
@@ -246,7 +267,7 @@ test('cancelBooking returns the guest details the notice was built from', () => 
 test('the restaurant is still notified even if the guest send fails', async () => {
   const sent: Sent[] = [];
   __setEmailTransportForTests(async (templateId, params) => {
-    if (params.recipient_role === 'guest') throw new Error('mailbox full');
+    if (params.to_email === 'anna@example.hu') throw new Error('mailbox full');
     sent.push({ templateId, params });
   });
 
@@ -259,7 +280,7 @@ test('the restaurant is still notified even if the guest send fails', async () =
 
   assert.equal(cancelled.success, true, 'the cancellation itself always succeeds');
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].params.recipient_role, 'restaurant');
+  assert.equal(sent[0].params.to_email, 'epistemebudapest@gmail.com');
 });
 
 test('an unknown code cancels nothing and notifies nobody', async () => {
@@ -287,6 +308,7 @@ test('notifyBookingCancelled still reaches the restaurant when the stored addres
   assert.equal(outcome.restaurant, true);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].params.to_email, 'epistemebudapest@gmail.com');
+  assert.equal(sent[0].params.subject, 'Foglalás lemondva — EPISTEME');
 });
 
 test('modifying a booking keeps the contact details, so a later cancellation still reaches the guest', async () => {
@@ -300,10 +322,9 @@ test('modifying a booking keeps the contact details, so a later cancellation sti
   cancelBooking(booked.confirmationCode!);
   await tick();
 
-  const guest = sent.find((s) => s.params.recipient_role === 'guest');
-  assert.ok(guest);
-  assert.equal(guest.params.to_email, 'anna@example.hu');
-  assert.equal(guest.params.guest_count, '20', 'the notice reflects the MODIFIED party size');
+  const guest = sent.find((s) => s.params.to_email === 'anna@example.hu');
+  assert.ok(guest, 'the guest was still reachable after the modification');
+  assert.match(guest.params.message_body, /Létszám: 20 fő/, 'the notice reflects the MODIFIED party size');
 });
 
 // ---------------------------------------------------------------------------

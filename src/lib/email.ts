@@ -8,13 +8,20 @@ import { RESTAURANT } from './restaurant';
  * WHY SERVER-SIDE, when the site already had EmailJS. The existing
  * integration in ReservationSection.tsx uses @emailjs/browser, which only
  * runs in the guest's tab. That is fine for "the chat just booked a table",
- * but it cannot satisfy either new requirement: a cancellation must notify
- * people even when it arrives through the Retell voice agent (no browser at
- * all), and the restaurant copy must be sent regardless of what the guest's
- * tab is doing. EmailJS itself supports exactly this — its REST API accepts
- * server-side calls once the private key is supplied as `accessToken` and
- * non-browser access is enabled on the account — so this keeps the client's
- * existing EmailJS account/service and simply drives it from the server.
+ * but it cannot satisfy either requirement: a cancellation must notify people
+ * even when it arrives through the Retell voice agent (no browser at all),
+ * and the restaurant copy must be sent regardless of what the guest's tab is
+ * doing. EmailJS itself supports this — its REST API accepts server-side
+ * calls once the private key is supplied as `accessToken` and non-browser
+ * access is enabled — so this keeps the existing EmailJS account and simply
+ * drives it from the server.
+ *
+ * ONE TEMPLATE FOR BOTH MAILS. The EmailJS free plan allows a single
+ * template, so the dashboard template is deliberately kept "dumb": it only
+ * renders {{subject}} and {{message_body}} to {{to_email}}. Every word of
+ * both letters is composed HERE, in renderConfirmationEmail /
+ * renderCancellationEmail, which means the wording is version-controlled and
+ * unit-tested rather than living in a dashboard nobody can diff.
  *
  * DELIVERY IS BEST-EFFORT, ALWAYS. A reservation that was really committed
  * must never be reported as failed because an e-mail bounced: every function
@@ -41,7 +48,10 @@ export type CancellationEmailDetails = BookingEmailDetails & {
   cancelledAt: string;
 };
 
-/** Sends one already-rendered template. Injectable so tests never hit the network. */
+/** One rendered letter, ready to hand to the shared template. */
+export type RenderedEmail = { subject: string; message_body: string };
+
+/** Sends one already-rendered mail. Injectable so tests never hit the network. */
 export type EmailTransport = (templateId: string, params: Record<string, string>) => Promise<void>;
 
 // EMAILJS_API_URL is a test seam only; in production the real endpoint is used.
@@ -51,8 +61,7 @@ type EmailConfig = {
   serviceId: string;
   publicKey: string;
   privateKey: string;
-  confirmationTemplate: string;
-  cancellationTemplate: string;
+  templateId: string;
 };
 
 /** Read lazily (not at module load) so tests and serverless cold starts see
@@ -61,12 +70,9 @@ function readConfig(): EmailConfig | null {
   const serviceId = process.env.EMAILJS_SERVICE_ID;
   const publicKey = process.env.EMAILJS_PUBLIC_KEY;
   const privateKey = process.env.EMAILJS_PRIVATE_KEY;
-  const confirmationTemplate = process.env.EMAILJS_TEMPLATE_CONFIRMATION;
-  const cancellationTemplate = process.env.EMAILJS_TEMPLATE_CANCELLATION;
-  if (!serviceId || !publicKey || !privateKey || !confirmationTemplate || !cancellationTemplate) {
-    return null;
-  }
-  return { serviceId, publicKey, privateKey, confirmationTemplate, cancellationTemplate };
+  const templateId = process.env.EMAILJS_TEMPLATE_ID;
+  if (!serviceId || !publicKey || !privateKey || !templateId) return null;
+  return { serviceId, publicKey, privateKey, templateId };
 }
 
 export function isEmailConfigured(): boolean {
@@ -147,48 +153,64 @@ export function normalizeEmail(raw: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Template rendering — pure functions, so the exact variables a template
-// receives are asserted in tests instead of discovered in production.
+// Letter composition — pure functions, so the exact wording that reaches a
+// guest is asserted in tests instead of discovered in production.
 // ---------------------------------------------------------------------------
 
-const RESTAURANT_FIELDS = {
-  restaurant_name: RESTAURANT.name,
-  restaurant_address: RESTAURANT.address,
-  restaurant_email: RESTAURANT.contactEmail,
-  deposit: RESTAURANT.depositEur,
-} as const;
+/** A raw ISO instant is unreadable in a guest-facing letter; render the
+ * cancellation moment in the restaurant's own timezone instead. */
+function formatTimestamp(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return new Intl.DateTimeFormat('hu-HU', {
+    timeZone: 'Europe/Budapest',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
 
-export function renderConfirmationParams(details: BookingEmailDetails): Record<string, string> {
+export function renderConfirmationEmail(details: BookingEmailDetails): RenderedEmail {
   return {
-    to_email: details.email,
-    guest_name: details.name,
-    guest_email: details.email,
-    guest_phone: details.phone,
-    reservation_date: details.date,
-    reservation_time: details.time,
-    guest_count: String(details.guests),
-    confirmation_code: details.confirmationCode,
-    ...RESTAURANT_FIELDS,
+    subject: `Foglalás visszaigazolása — ${RESTAURANT.name}`,
+    message_body: `Kedves ${details.name}!
+
+Köszönjük foglalását az ${RESTAURANT.name} étterembe. Az alábbi részleteket rögzítettük:
+
+Dátum: ${details.date}
+Időpont: ${details.time}
+Létszám: ${details.guests} fő
+Foglalási kód: ${details.confirmationCode}
+Előleg: ${RESTAURANT.depositEur}
+
+Cím: ${RESTAURANT.address}
+
+Kérdés esetén keressen minket: ${RESTAURANT.contactEmail}
+
+Várjuk szeretettel!
+${RESTAURANT.name}`,
   };
 }
 
-export function renderCancellationParams(
-  details: CancellationEmailDetails,
-  recipient: string,
-  recipientRole: 'guest' | 'restaurant',
-): Record<string, string> {
+export function renderCancellationEmail(details: CancellationEmailDetails): RenderedEmail {
   return {
-    to_email: recipient,
-    recipient_role: recipientRole,
-    guest_name: details.name,
-    guest_email: details.email,
-    guest_phone: details.phone,
-    reservation_date: details.date,
-    reservation_time: details.time,
-    guest_count: String(details.guests),
-    confirmation_code: details.confirmationCode,
-    cancelled_at: details.cancelledAt,
-    ...RESTAURANT_FIELDS,
+    subject: `Foglalás lemondva — ${RESTAURANT.name}`,
+    message_body: `Kedves ${details.name}!
+
+Az alábbi foglalás lemondásra került:
+
+Foglalási kód: ${details.confirmationCode}
+Dátum: ${details.date}
+Időpont: ${details.time}
+Létszám: ${details.guests} fő
+
+Lemondás időpontja: ${formatTimestamp(details.cancelledAt)}
+
+Amennyiben ez tévedés, kérjük vegye fel velünk a kapcsolatot: ${RESTAURANT.contactEmail}
+
+${RESTAURANT.name}`,
   };
 }
 
@@ -196,18 +218,21 @@ export function renderCancellationParams(
 // Dispatch — every path below is non-throwing by contract.
 // ---------------------------------------------------------------------------
 
-async function dispatch(templateId: string, params: Record<string, string>, label: string): Promise<boolean> {
+async function dispatch(letter: RenderedEmail, recipient: string, label: string): Promise<boolean> {
   const transport = transportOverride ?? (isEmailConfigured() ? emailjsTransport : null);
+  const templateId = process.env.EMAILJS_TEMPLATE_ID ?? '';
+  const params = { to_email: recipient, subject: letter.subject, message_body: letter.message_body };
+
   if (!transport) {
-    console.warn(`[EMAIL_SKIPPED] ${label}: EmailJS is not configured (set EMAILJS_* env vars); no mail sent to ${params.to_email}`);
+    console.warn(`[EMAIL_SKIPPED] ${label}: EmailJS is not configured (set EMAILJS_* env vars); no mail sent to ${recipient}`);
     return false;
   }
   try {
     await transport(templateId, params);
-    console.log('[EMAIL_SENT]', JSON.stringify({ ts: new Date().toISOString(), label, to: params.to_email, code: params.confirmation_code }));
+    console.log('[EMAIL_SENT]', JSON.stringify({ ts: new Date().toISOString(), label, to: recipient, subject: letter.subject }));
     return true;
   } catch (err) {
-    console.error(`[EMAIL_ERROR] ${label} to ${params.to_email} failed:`, redactSecrets(err instanceof Error ? err.message : String(err)));
+    console.error(`[EMAIL_ERROR] ${label} to ${recipient} failed:`, redactSecrets(err instanceof Error ? err.message : String(err)));
     return false;
   }
 }
@@ -215,12 +240,12 @@ async function dispatch(templateId: string, params: Record<string, string>, labe
 /** Booking confirmation to the guest. Resolves false (never throws) when
  * unconfigured or undeliverable — the reservation itself already succeeded. */
 export async function notifyBookingConfirmed(details: BookingEmailDetails): Promise<boolean> {
-  const templateId = process.env.EMAILJS_TEMPLATE_CONFIRMATION ?? '';
-  if (!normalizeEmail(details.email)) {
+  const address = normalizeEmail(details.email);
+  if (!address) {
     console.error('[EMAIL_ERROR] booking confirmation skipped: no usable guest address for', details.confirmationCode);
     return false;
   }
-  return dispatch(templateId, renderConfirmationParams(details), 'booking confirmation');
+  return dispatch(renderConfirmationEmail(details), address, 'booking confirmation');
 }
 
 /**
@@ -231,18 +256,14 @@ export async function notifyBookingConfirmed(details: BookingEmailDetails): Prom
 export async function notifyBookingCancelled(
   details: CancellationEmailDetails,
 ): Promise<{ guest: boolean; restaurant: boolean }> {
-  const templateId = process.env.EMAILJS_TEMPLATE_CANCELLATION ?? '';
+  const letter = renderCancellationEmail(details);
   const guestAddress = normalizeEmail(details.email);
 
   const [guest, restaurant] = await Promise.all([
     guestAddress
-      ? dispatch(templateId, renderCancellationParams(details, guestAddress, 'guest'), 'cancellation notice (guest)')
+      ? dispatch(letter, guestAddress, 'cancellation notice (guest)')
       : Promise.resolve(false),
-    dispatch(
-      templateId,
-      renderCancellationParams(details, RESTAURANT.contactEmail, 'restaurant'),
-      'cancellation notice (restaurant)',
-    ),
+    dispatch(letter, RESTAURANT.contactEmail, 'cancellation notice (restaurant)'),
   ]);
 
   if (!guestAddress) {
