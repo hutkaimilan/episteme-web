@@ -337,3 +337,59 @@ test('storage: capacity survives as store state — a fresh read sees another wr
   assert.equal(await storeBookedFor(date), 30, 'the store itself holds the count, not a module-local Map');
   assert.equal((await checkAvailability(date, '21:00', 21)).available, false, 'and it gates a later request');
 });
+
+// ---------------------------------------------------------------------------
+// PRODUCTION REGRESSION — the "12 booked, 30 requested, told only 19 free"
+// incident. Root cause (already removed from this engine, guarded here so it
+// can never return): an earlier build added a synthetic per-date "pseudo-load"
+// on top of the real bookings to make demo evenings look busy, so a date's
+// remaining capacity was 50 − pseudoLoad − realBookings instead of
+// 50 − realBookings. With a pseudo-load of 19 on that Saturday the guest was
+// told 19 seats remained and was pushed to another day, although 12 + 30 = 42
+// genuinely fit. Capacity must be REAL bookings only, summed per DATE across
+// every seating time.
+// ---------------------------------------------------------------------------
+
+test('capacity regression (a): empty evening + 10 guests → accepted, full 50 free', async () => {
+  const date = daysFromToday(3);
+  const result = await checkAvailability(date, '20:00', 10);
+  assert.equal(result.available, true);
+  assert.equal(result.remainingCapacity, 50, 'an untouched date must show the full pool, never a synthetic load');
+});
+
+test('capacity regression (b): 12 already booked + 30 requested → ACCEPTED (12+30=42)', async () => {
+  const date = daysFromToday(4);
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, '20:00', 12)).success, true);
+  const result = await checkAvailability(date, '21:00', 30);
+  assert.equal(result.available, true, 'the exact production case: 42 <= 50 must be accepted');
+  assert.equal(result.remainingCapacity, 38, 'and the quoted number must be 38, never 19');
+});
+
+test('capacity regression (c): 40 already booked + 15 requested → refused, exactly 10 free', async () => {
+  const date = daysFromToday(5);
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, '20:00', 40)).success, true);
+  const result = await checkAvailability(date, '21:00', 15);
+  assert.equal(result.available, false);
+  assert.equal(result.remainingCapacity, 10);
+});
+
+test('capacity regression (d): a full evening (50 booked) refuses any party size', async () => {
+  const date = daysFromToday(6);
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, '20:00', 50)).success, true);
+  for (const guests of [1, 5, 30]) {
+    const result = await checkAvailability(date, '21:00', guests);
+    assert.equal(result.available, false, `party of ${guests} must be refused on a full evening`);
+    assert.equal(result.remainingCapacity, 0);
+  }
+});
+
+test('capacity regression (e): 10+10+10 at three different times share one pool — a 25 party is refused', async () => {
+  const date = daysFromToday(7);
+  for (const time of ['20:00', '21:00', '22:00']) {
+    assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, time, 10)).success, true);
+  }
+  const result = await checkAvailability(date, '20:30', 25);
+  assert.equal(result.available, false, 'one seating per evening: 30 booked leaves 20, so 25 cannot fit');
+  assert.equal(result.remainingCapacity, 20, 'capacity is summed per DATE, never per time slot');
+  assert.equal((await checkAvailability(date, '20:30', 20)).available, true, 'but exactly 20 still fits');
+});
