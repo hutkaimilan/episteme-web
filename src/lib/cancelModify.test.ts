@@ -41,7 +41,7 @@ beforeEach(async () => {
 // ===========================================================================
 test('cancel: a successful cancellation restores the freed capacity', async () => {
   const date = daysFromToday(10);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 30);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 30);
   assert.equal(booked.success, true);
   assert.equal((await checkAvailability(date, AT, 25)).available, false); // only 20 free
 
@@ -59,7 +59,7 @@ test('cancel: a successful cancellation restores the freed capacity', async () =
 // ===========================================================================
 test('cancel: an unknown confirmation code is rejected without touching capacity', async () => {
   const date = daysFromToday(10);
-  await bookTable('Vendég', '+36301234567', date, '20:00', 12);
+  await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
   const r = await cancelBooking('EP-0000');
   assert.equal(r.success, false);
   assert.match(r.reason ?? '', /unknown_code/);
@@ -70,7 +70,7 @@ test('cancel: an unknown confirmation code is rejected without touching capacity
 
 test('cancel is idempotent: a second cancel of the same code reports unknown_code', async () => {
   const date = daysFromToday(9);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 10);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 10);
   assert.equal((await cancelBooking(booked.confirmationCode!)).success, true);
   const second = await cancelBooking(booked.confirmationCode!);
   assert.equal(second.success, false);
@@ -79,10 +79,10 @@ test('cancel is idempotent: a second cancel of the same code reports unknown_cod
 
 test('cancel frees seats that are immediately re-bookable (full → cancel → full again)', async () => {
   const date = daysFromToday(8);
-  const booked = await bookTable('Nagy Csoport', '+36301234567', date, '20:00', 50);
+  const booked = await bookTable('Nagy Csoport', '+36301234567', 'vendeg@example.com', date, '20:00', 50);
   assert.equal((await checkAvailability(date, AT, 1)).available, false); // fully booked
   assert.equal((await cancelBooking(booked.confirmationCode!)).success, true);
-  assert.equal((await bookTable('Új Csoport', '+36309998877', date, '20:00', 50)).success, true);
+  assert.equal((await bookTable('Új Csoport', '+36309998877', 'vendeg@example.com', date, '20:00', 50)).success, true);
 });
 
 // ===========================================================================
@@ -90,7 +90,7 @@ test('cancel frees seats that are immediately re-bookable (full → cancel → f
 // ===========================================================================
 test('modify: reducing the party size succeeds and frees seats', async () => {
   const date = daysFromToday(11);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const r = await modifyBooking(booked.confirmationCode!, 8);
   assert.equal(r.success, true);
   assert.equal(r.guests, 8);
@@ -104,8 +104,8 @@ test('modify: reducing the party size succeeds and frees seats', async () => {
 // ===========================================================================
 test('modify: an increase that exceeds the evening pool is rejected', async () => {
   const date = daysFromToday(7);
-  await bookTable('Másik Csoport', '+36301112233', date, '20:00', 30); // others
-  const mine = await bookTable('Vendég', '+36304445566', date, '21:00', 8); // total now 38
+  await bookTable('Másik Csoport', '+36301112233', 'vendeg@example.com', date, '20:00', 30); // others
+  const mine = await bookTable('Vendég', '+36304445566', 'vendeg@example.com', date, '21:00', 8); // total now 38
   const r = await modifyBooking(mine.confirmationCode!, 25); // others 30 → only 20 available for this
   assert.equal(r.success, false);
   assert.match(r.reason ?? '', /insufficient_capacity/);
@@ -120,7 +120,7 @@ test('modify: an increase that exceeds the evening pool is rejected', async () =
 // ===========================================================================
 test('modify: growing on an otherwise-empty evening never double-counts own seats', async () => {
   const date = daysFromToday(12);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 12);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
   // 12 booked; growing to 20 must succeed (own 12 excluded, so 50 available).
   const r = await modifyBooking(booked.confirmationCode!, 20);
   assert.equal(r.success, true, JSON.stringify(r));
@@ -130,7 +130,7 @@ test('modify: growing on an otherwise-empty evening never double-counts own seat
 
 test('modify: keeping the same size always succeeds', async () => {
   const date = daysFromToday(6);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 40);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 40);
   const r = await modifyBooking(booked.confirmationCode!, 40);
   assert.equal(r.success, true);
   assert.equal(r.remainingCapacity, 10);
@@ -141,7 +141,7 @@ test('modify: keeping the same size always succeeds', async () => {
 // ===========================================================================
 test('modify: unknown code / invalid count / too large are rejected', async () => {
   const date = daysFromToday(9);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 10);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 10);
   assert.match((await modifyBooking('EP-9999', 5)).reason ?? '', /unknown_code/);
   assert.match((await modifyBooking(booked.confirmationCode!, 0)).reason ?? '', /invalid_guests/);
   assert.match((await modifyBooking(booked.confirmationCode!, 51)).reason ?? '', /party_too_large/);
@@ -152,7 +152,7 @@ test('modify: unknown code / invalid count / too large are rejected', async () =
 // ===========================================================================
 test('cancel/modify accept loosely-typed confirmation codes', async () => {
   const date = daysFromToday(10);
-  const booked = await bookTable('Vendég', '+36301234567', date, '20:00', 10);
+  const booked = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 10);
   const digits = booked.confirmationCode!.slice(3); // XXXX
   assert.equal((await modifyBooking(`ep ${digits}`, 6)).success, true);
   assert.equal((await cancelBooking(`EP${digits}`)).success, true);
@@ -164,7 +164,7 @@ test('cancel/modify accept loosely-typed confirmation codes', async () => {
 test('audit: cancel and modify decisions are logged', async () => {
   const date = daysFromToday(9);
   const { audits } = await withAuditCapture(async () => {
-    const b = await bookTable('Vendég', '+36301234567', date, '20:00', 12);
+    const b = await bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
     await modifyBooking(b.confirmationCode!, 8);
     await cancelBooking(b.confirmationCode!);
   });

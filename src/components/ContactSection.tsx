@@ -89,10 +89,10 @@ export default function ContactSection() {
             </h3>
             <p className="mt-4 text-sm font-light leading-relaxed">
               <a
-                href="mailto:bizniszpappa@gmail.com"
+                href="mailto:epistemebudapest@gmail.com"
                 className="text-ivory-muted transition-colors duration-500 hover:text-gold-bright"
               >
-                bizniszpappa@gmail.com
+                epistemebudapest@gmail.com
               </a>
             </p>
           </div>

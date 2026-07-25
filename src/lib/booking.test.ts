@@ -75,7 +75,7 @@ test('empty evening: small party is accepted with all 50 seats free', async () =
 // ===========================================================================
 test('12 already booked + 30 for the SAME date is accepted (12+30=42<=50)', async () => {
   const date = nextDow(6); // a Saturday, matching the original bug report
-  const booked = await bookTable('Existing Guest', '+36301234567', date, '20:00', 12);
+  const booked = await bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
   assert.equal(booked.success, true);
 
   const r = await checkAvailability(date, AT, 30);
@@ -88,7 +88,7 @@ test('12 already booked + 30 for the SAME date is accepted (12+30=42<=50)', asyn
 // ===========================================================================
 test('partially booked evening where the party fits: 20 booked + 25 accepted', async () => {
   const date = daysFromToday(12);
-  assert.equal((await bookTable('A B', '0612345678', date, '20:00', 20)).success, true);
+  assert.equal((await bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 20)).success, true);
   const r = await checkAvailability(date, AT, 25); // 20 + 25 = 45 <= 50
   assert.equal(r.available, true);
   assert.equal(r.remainingCapacity, 30);
@@ -100,7 +100,7 @@ test('partially booked evening where the party fits: 20 booked + 25 accepted', a
 // ===========================================================================
 test('party does not fit: reports exact remaining and fitting alternatives', async () => {
   const date = daysFromToday(9);
-  assert.equal((await bookTable('A B', '0612345678', date, '20:00', 40)).success, true);
+  assert.equal((await bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 40)).success, true);
   const r = await checkAvailability(date, AT, 15); // only 10 remain
   assert.equal(r.available, false);
   assert.equal(r.remainingCapacity, 10);
@@ -119,7 +119,7 @@ test('party does not fit: reports exact remaining and fitting alternatives', asy
 // ===========================================================================
 test('fully booked evening: 0 remaining, evening_fully_booked, alternatives offered', async () => {
   const date = daysFromToday(8);
-  assert.equal((await bookTable('A B', '0612345678', date, '20:00', 50)).success, true);
+  assert.equal((await bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 50)).success, true);
   const r = await checkAvailability(date, AT, 1);
   assert.equal(r.available, false);
   assert.equal(r.remainingCapacity, 0);
@@ -133,9 +133,9 @@ test('fully booked evening: 0 remaining, evening_fully_booked, alternatives offe
 // ===========================================================================
 test('multiple same-date bookings at different times share one 50-seat pool', async () => {
   const date = daysFromToday(11);
-  assert.equal((await bookTable('One', '0612345678', date, '20:00', 10)).success, true);
-  assert.equal((await bookTable('Two', '0612345678', date, '21:00', 15)).success, true);
-  assert.equal((await bookTable('Three', '0612345678', date, '22:00', 5)).success, true);
+  assert.equal((await bookTable('One', '0612345678', 'vendeg@example.com', date, '20:00', 10)).success, true);
+  assert.equal((await bookTable('Two', '0612345678', 'vendeg@example.com', date, '21:00', 15)).success, true);
+  assert.equal((await bookTable('Three', '0612345678', 'vendeg@example.com', date, '22:00', 5)).success, true);
   // 30 booked → 20 free for ANY time that evening.
   assert.equal((await checkAvailability(date, '23:00', 21)).available, false); // 21 > 20
   const ok = await checkAvailability(date, '20:30', 20);
@@ -151,12 +151,12 @@ test('multiple same-date bookings at different times share one 50-seat pool', as
 // ===========================================================================
 test('atomic commit: two concurrent 25-guest bookings cannot both pass when only 30 free', async () => {
   const date = daysFromToday(7);
-  assert.equal((await bookTable('Seed', '0612345678', date, '20:00', 20)).success, true); // 30 free
+  assert.equal((await bookTable('Seed', '0612345678', 'vendeg@example.com', date, '20:00', 20)).success, true); // 30 free
 
   // Simulate concurrency: schedule both on the microtask queue and await both.
   const [a, b] = await Promise.all([
-    Promise.resolve().then(async () => await bookTable('Alice', '0611111111', date, '20:00', 25)),
-    Promise.resolve().then(async () => await bookTable('Bob', '0622222222', date, '21:00', 25)),
+    Promise.resolve().then(async () => await bookTable('Alice', '0611111111', 'vendeg@example.com', date, '20:00', 25)),
+    Promise.resolve().then(async () => await bookTable('Bob', '0622222222', 'vendeg@example.com', date, '21:00', 25)),
   ]);
 
   const successes = [a, b].filter((r) => r.success).length;
@@ -171,8 +171,8 @@ test('atomic commit: two concurrent 25-guest bookings cannot both pass when only
 // ===========================================================================
 test('commit re-validates: a booking is rejected if the pool filled since the check', async () => {
   const date = daysFromToday(6);
-  assert.equal((await bookTable('Filler', '0612345678', date, '20:00', 45)).success, true);
-  const late = await bookTable('Late', '0699999999', date, '20:00', 10); // only 5 remain
+  assert.equal((await bookTable('Filler', '0612345678', 'vendeg@example.com', date, '20:00', 45)).success, true);
+  const late = await bookTable('Late', '0699999999', 'vendeg@example.com', date, '20:00', 10); // only 5 remain
   assert.equal(late.success, false);
   assert.match(late.reason ?? '', /insufficient_capacity/);
 });
@@ -206,8 +206,8 @@ test('opening hours: weekday 00:00 rejected, weekend 00:00 accepted', async () =
 
 test('bookTable rejects bad name/phone BEFORE mutating capacity', async () => {
   const date = daysFromToday(10);
-  assert.match((await bookTable('', '0612345678', date, AT, 2)).reason ?? '', /invalid_name/);
-  assert.match((await bookTable('Valid Name', '12', date, AT, 2)).reason ?? '', /invalid_phone/);
+  assert.match((await bookTable('', '0612345678', 'vendeg@example.com', date, AT, 2)).reason ?? '', /invalid_name/);
+  assert.match((await bookTable('Valid Name', '12', 'vendeg@example.com', date, AT, 2)).reason ?? '', /invalid_phone/);
   assert.equal((await checkAvailability(date, AT, 2)).remainingCapacity, 50); // untouched
 });
 
@@ -217,7 +217,7 @@ test('bookTable rejects bad name/phone BEFORE mutating capacity', async () => {
 test('alternatives skip fully-booked days and only offer days that fit', async () => {
   const date = daysFromToday(5);
   for (const off of [5, 6, 7]) {
-    assert.equal((await bookTable('Full', '0612345678', daysFromToday(off), '20:00', 50)).success, true);
+    assert.equal((await bookTable('Full', '0612345678', 'vendeg@example.com', daysFromToday(off), '20:00', 50)).success, true);
   }
   const r = await checkAvailability(date, AT, 10);
   assert.equal(r.available, false);
@@ -233,7 +233,7 @@ test('alternatives skip fully-booked days and only offer days that fit', async (
 // ===========================================================================
 test('resetBookings clears the pool back to empty', async () => {
   const date = daysFromToday(9);
-  await bookTable('A B', '0612345678', date, '20:00', 30);
+  await bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 30);
   assert.equal((await checkAvailability(date, AT, 25)).available, false); // 20 free
   const cleared = await resetBookings();
   assert.equal(cleared.clearedDates, 1);
@@ -247,7 +247,7 @@ test('resetBookings clears the pool back to empty', async () => {
 test('audit log records check and booking decisions with occupancy + decision', async () => {
   const date = daysFromToday(9);
   const { audits } = await withAuditCapture(async () => {
-    await bookTable('A B', '0612345678', date, '20:00', 12);
+    await bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 12);
     await checkAvailability(date, AT, 30);
   });
   const parsed = audits.map((a) => JSON.parse(a) as Record<string, unknown>);
@@ -274,9 +274,9 @@ test('audit log records check and booking decisions with occupancy + decision', 
 test('atomic reserve: three concurrent bookings never exceed the 50-seat pool', async () => {
   const date = daysFromToday(3);
   const results = await Promise.all([
-    Promise.resolve().then(() => bookTable('A One', '0611111111', date, '20:00', 20)),
-    Promise.resolve().then(() => bookTable('B Two', '0622222222', date, '21:00', 20)),
-    Promise.resolve().then(() => bookTable('C Three', '0633333333', date, '22:00', 20)),
+    Promise.resolve().then(() => bookTable('A One', '0611111111', 'vendeg@example.com', date, '20:00', 20)),
+    Promise.resolve().then(() => bookTable('B Two', '0622222222', 'vendeg@example.com', date, '21:00', 20)),
+    Promise.resolve().then(() => bookTable('C Three', '0633333333', 'vendeg@example.com', date, '22:00', 20)),
   ]);
   const accepted = results.filter((r) => r.success);
   assert.equal(accepted.length, 2, 'only two 20-guest parties fit into 50 seats');
@@ -289,15 +289,15 @@ test('atomic reserve: three concurrent bookings never exceed the 50-seat pool', 
 
 test('atomic reserve: an exact fit succeeds and one more seat is refused', async () => {
   const date = daysFromToday(4);
-  assert.equal((await bookTable('A One', '0611111111', date, '20:00', 50)).success, true);
-  const overflow = await bookTable('B Two', '0622222222', date, '21:00', 1);
+  assert.equal((await bookTable('A One', '0611111111', 'vendeg@example.com', date, '20:00', 50)).success, true);
+  const overflow = await bookTable('B Two', '0622222222', 'vendeg@example.com', date, '21:00', 1);
   assert.equal(overflow.success, false);
   assert.match(String(overflow.reason), /evening_fully_booked/);
 });
 
 test('delete-gate: cancelling the same code twice frees its seats exactly once', async () => {
   const date = daysFromToday(5);
-  const booked = await bookTable('A One', '0611111111', date, '20:00', 20);
+  const booked = await bookTable('A One', '0611111111', 'vendeg@example.com', date, '20:00', 20);
   assert.equal(booked.success, true);
   const code = String(booked.confirmationCode);
 
@@ -315,8 +315,8 @@ test('delete-gate: cancelling the same code twice frees its seats exactly once',
 
 test('atomic resize: concurrent grows cannot jointly overbook the evening', async () => {
   const date = daysFromToday(6);
-  const a = await bookTable('A One', '0611111111', date, '20:00', 20);
-  const b = await bookTable('B Two', '0622222222', date, '21:00', 20);
+  const a = await bookTable('A One', '0611111111', 'vendeg@example.com', date, '20:00', 20);
+  const b = await bookTable('B Two', '0622222222', 'vendeg@example.com', date, '21:00', 20);
   assert.equal(a.success && b.success, true);
 
   // 40 booked, 10 free. Both try to grow by 10 at the same time; only one can.
@@ -333,7 +333,7 @@ test('storage: capacity survives as store state — a fresh read sees another wr
   // Writes go through the shared store, so a subsequent independent read
   // (what a different serverless instance performs) observes them. With the
   // previous per-process Maps this is exactly what could NOT be relied on.
-  assert.equal((await bookTable('A One', '0611111111', date, '20:00', 30)).success, true);
+  assert.equal((await bookTable('A One', '0611111111', 'vendeg@example.com', date, '20:00', 30)).success, true);
   assert.equal(await storeBookedFor(date), 30, 'the store itself holds the count, not a module-local Map');
   assert.equal((await checkAvailability(date, '21:00', 21)).available, false, 'and it gates a later request');
 });
@@ -359,7 +359,7 @@ test('capacity regression (a): empty evening + 10 guests → accepted, full 50 f
 
 test('capacity regression (b): 12 already booked + 30 requested → ACCEPTED (12+30=42)', async () => {
   const date = daysFromToday(4);
-  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, '20:00', 12)).success, true);
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 12)).success, true);
   const result = await checkAvailability(date, '21:00', 30);
   assert.equal(result.available, true, 'the exact production case: 42 <= 50 must be accepted');
   assert.equal(result.remainingCapacity, 38, 'and the quoted number must be 38, never 19');
@@ -367,7 +367,7 @@ test('capacity regression (b): 12 already booked + 30 requested → ACCEPTED (12
 
 test('capacity regression (c): 40 already booked + 15 requested → refused, exactly 10 free', async () => {
   const date = daysFromToday(5);
-  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, '20:00', 40)).success, true);
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 40)).success, true);
   const result = await checkAvailability(date, '21:00', 15);
   assert.equal(result.available, false);
   assert.equal(result.remainingCapacity, 10);
@@ -375,7 +375,7 @@ test('capacity regression (c): 40 already booked + 15 requested → refused, exa
 
 test('capacity regression (d): a full evening (50 booked) refuses any party size', async () => {
   const date = daysFromToday(6);
-  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, '20:00', 50)).success, true);
+  assert.equal((await bookTable('Meglévő Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 50)).success, true);
   for (const guests of [1, 5, 30]) {
     const result = await checkAvailability(date, '21:00', guests);
     assert.equal(result.available, false, `party of ${guests} must be refused on a full evening`);
@@ -386,7 +386,7 @@ test('capacity regression (d): a full evening (50 booked) refuses any party size
 test('capacity regression (e): 10+10+10 at three different times share one pool — a 25 party is refused', async () => {
   const date = daysFromToday(7);
   for (const time of ['20:00', '21:00', '22:00']) {
-    assert.equal((await bookTable('Meglévő Vendég', '+36301234567', date, time, 10)).success, true);
+    assert.equal((await bookTable('Meglévő Vendég', '+36301234567', 'vendeg@example.com', date, time, 10)).success, true);
   }
   const result = await checkAvailability(date, '20:30', 25);
   assert.equal(result.available, false, 'one seating per evening: 30 booked leaves 20, so 25 cannot fit');

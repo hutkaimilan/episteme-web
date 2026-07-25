@@ -21,7 +21,17 @@
  */
 import { kv } from '@vercel/kv';
 
-export type StoredBooking = { date: string; time: string; guests: number };
+/** A persisted reservation. The guest's contact details travel WITH the
+ * record because a cancellation has to reach the person who booked, and at
+ * cancel time the only thing supplied is the EP-XXXX code. */
+export type StoredBooking = {
+  date: string;
+  time: string;
+  guests: number;
+  name: string;
+  phone: string;
+  email: string;
+};
 
 export interface BookingStore {
   readonly backend: 'vercel-kv' | 'memory';

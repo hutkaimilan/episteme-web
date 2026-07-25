@@ -6,7 +6,7 @@
  * per evening (no table turnover). Opening hours Mon–Fri 20:00–00:00,
  * Sat–Sun 20:00–01:00 (last seating one hour before close). Deposit
  * 275,59 € per reservation, no minimum spend, no dress code. Contact
- * bizniszpappa@gmail.com. Confirmation codes are EP-XXXX (4 digits),
+ * epistemebudapest@gmail.com. Confirmation codes are EP-XXXX (4 digits),
  * ALWAYS generated here — the model only ever relays one it received back.
  *
  * CAPACITY MODEL — DATE-based, never time-slot-based: a table booked at
@@ -43,6 +43,8 @@
  */
 
 import { store, type StoredBooking } from './kv';
+import { normalizeEmail, notifyBookingCancelled, notifyBookingConfirmed } from './email';
+import { RESTAURANT } from './restaurant';
 
 export type AvailabilityResult = {
   available: boolean;
@@ -61,7 +63,11 @@ export type CancelResult = {
   success: boolean;
   reason?: string;
   date?: string;
+  time?: string;
   guests?: number;
+  /** The name the reservation was made under — echoed back so the caller can
+   * show/relay who was cancelled, and mirrored in the notification e-mails. */
+  name?: string;
   remainingCapacity?: number;
 };
 
@@ -74,9 +80,8 @@ export type ModifyResult = {
   remainingCapacity?: number;
 };
 
-const CAPACITY = 50;
-const DEPOSIT_EUR = '275,59 €';
-const CONTACT_EMAIL = 'bizniszpappa@gmail.com';
+const CAPACITY = RESTAURANT.capacity;
+const CONTACT_EMAIL = RESTAURANT.contactEmail;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]|24):([0-5]\d)$/;
@@ -282,6 +287,7 @@ function normalizeCode(raw: unknown): string {
 export async function bookTable(
   name: string,
   phone: string,
+  email: string,
   date: string,
   time: string,
   guests: number,
@@ -293,6 +299,14 @@ export async function bookTable(
   if (typeof phone !== 'string' || (phone.match(/\d/g) ?? []).length < 6) {
     audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_phone' });
     return { success: false, reason: 'invalid_phone: a valid phone number is required' };
+  }
+  // Coerced, not merely checked: a messy but well-intentioned address
+  // ("  Anna@Example.COM ", "mailto:…") is repaired here rather than
+  // bouncing the guest back through another round of the conversation.
+  const guestEmail = normalizeEmail(email);
+  if (!guestEmail) {
+    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_email' });
+    return { success: false, reason: 'invalid_email: a valid e-mail address is required for the confirmation' };
   }
 
   // Everything that needs no storage is rejected before any seats are touched.
@@ -327,7 +341,7 @@ export async function bookTable(
     return { success: false, reason: capacityReason(remaining) };
   }
 
-  const code = await claimCode({ date, time, guests });
+  const code = await claimCode({ date, time, guests, name, phone, email: guestEmail });
   if (!code) {
     // Roll back the seats this call just took — they belong to nobody.
     await store.freeSeats(date, guests);
@@ -350,11 +364,12 @@ export async function bookTable(
     backend: store.backend,
   });
 
-  // NOTE: the guest-facing confirmation e-mail is sent by the CLIENT via
-  // @emailjs/browser (a browser-only SDK) after it receives this successful
-  // result through the API route's structured tool-call payload — see
-  // ReservationSection.tsx. This function only ever hands back real data:
-  // deposit/contact facts live in the system prompt, not here.
+  // Confirmation e-mail: deliberately fire-and-forget. The atomic reserve +
+  // code claim above have already committed, so a mail failure must never
+  // turn a real reservation into an error — notifyBookingConfirmed never
+  // throws, it logs and resolves false.
+  void notifyBookingConfirmed({ confirmationCode: code, name, email: guestEmail, phone, date, time, guests });
+
   return { success: true, confirmationCode: code };
 }
 
@@ -385,7 +400,29 @@ export async function cancelBooking(confirmationCode: string): Promise<CancelRes
 
   const remaining = await remainingFor(record.date);
   audit({ op: 'cancel_booking', code, date: record.date, guests: record.guests, decision: 'cancelled', remaining, backend: store.backend });
-  return { success: true, date: record.date, guests: record.guests, remainingCapacity: remaining };
+
+  // Cancellation notice to BOTH the guest who booked and the restaurant.
+  // Fire-and-forget for the same reason as the confirmation above: the seats
+  // are already back in the pool and must stay that way regardless of mail.
+  void notifyBookingCancelled({
+    confirmationCode: code,
+    name: record.name,
+    email: record.email,
+    phone: record.phone,
+    date: record.date,
+    time: record.time,
+    guests: record.guests,
+    cancelledAt: new Date().toISOString(),
+  });
+
+  return {
+    success: true,
+    date: record.date,
+    time: record.time,
+    guests: record.guests,
+    name: record.name,
+    remainingCapacity: remaining,
+  };
 }
 
 /**
@@ -467,11 +504,7 @@ export async function bookingSnapshot(): Promise<Array<{ date: string; booked: n
 }
 
 /** Canonical restaurant facts, re-exported so the chat route's system prompt
- * and this engine can never drift apart on price/contact/capacity. */
-export const RESTAURANT = {
-  name: 'EPISTEME',
-  address: 'Budapest, Kossuth Lajos tér 14',
-  capacity: CAPACITY,
-  depositEur: DEPOSIT_EUR,
-  contactEmail: CONTACT_EMAIL,
-} as const;
+ * and this engine can never drift apart on price/contact/capacity. The values
+ * live in ./restaurant so the e-mail layer can share them without an import
+ * cycle back through this module. */
+export { RESTAURANT } from './restaurant';

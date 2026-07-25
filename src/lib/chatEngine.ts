@@ -1,5 +1,6 @@
 import { extractJson, hasSuspiciousToolSyntax, parseWholeJson } from './extractJson';
 import { bookTable, cancelBooking, checkAvailability, modifyBooking } from './booking';
+import { normalizeEmail } from './email';
 
 /**
  * Turn engine for the EPISTEME AI receptionist. Deliberate architecture: NO
@@ -265,9 +266,9 @@ export function detectLang(text: string): 'hu' | 'en' | 'es' {
 // code — it apologises and points to a real contact. A candid "please try
 // again / reach us here" beats a fabricated confirmation every time.
 const FALLBACK: Record<'hu' | 'en' | 'es', string> = {
-  hu: 'Elnézését kérem, egy pillanatra megszakadt a kapcsolat a foglalási rendszerünkkel. Kérem, próbálja meg ismét néhány pillanat múlva — ha sürgős, munkatársaink a bizniszpappa@gmail.com címen készséggel állnak rendelkezésére.',
-  en: 'My apologies — our reservation system is momentarily unavailable. Please try again in a few moments; if it is urgent, our team will gladly assist you at bizniszpappa@gmail.com.',
-  es: 'Le ruego me disculpe: nuestro sistema de reservas no está disponible por un instante. Inténtelo de nuevo en unos momentos; si es urgente, nuestro equipo le atenderá con mucho gusto en bizniszpappa@gmail.com.',
+  hu: 'Elnézését kérem, egy pillanatra megszakadt a kapcsolat a foglalási rendszerünkkel. Kérem, próbálja meg ismét néhány pillanat múlva — ha sürgős, munkatársaink a epistemebudapest@gmail.com címen készséggel állnak rendelkezésére.',
+  en: 'My apologies — our reservation system is momentarily unavailable. Please try again in a few moments; if it is urgent, our team will gladly assist you at epistemebudapest@gmail.com.',
+  es: 'Le ruego me disculpe: nuestro sistema de reservas no está disponible por un instante. Inténtelo de nuevo en unos momentos; si es urgente, nuestro equipo le atenderá con mucho gusto en epistemebudapest@gmail.com.',
 };
 
 export function fallbackMessage(history: ChatMessage[]): string {
@@ -354,8 +355,20 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
     if (obj.name === 'book_table') {
       const name = coerceText(input.name);
       const phone = coerceText(input.phone);
-      if (name !== undefined && phone !== undefined && date !== undefined && time !== undefined && guests !== null) {
-        return { type: 'tool', name: 'book_table', input: { ...input, name, phone, date, time, guests } };
+      // The address is normalised here (lowercased, "mailto:"/angle brackets
+      // and stray spaces stripped) so a messy but valid address is repaired
+      // rather than bounced; a genuinely unusable one stays undefined and is
+      // reported through the same missing-field reminder as name/phone.
+      const email = normalizeEmail(input.email) ?? undefined;
+      if (
+        name !== undefined &&
+        phone !== undefined &&
+        email !== undefined &&
+        date !== undefined &&
+        time !== undefined &&
+        guests !== null
+      ) {
+        return { type: 'tool', name: 'book_table', input: { ...input, name, phone, email, date, time, guests } };
       }
     }
     if (obj.name === 'cancel_booking' && confirmationCode !== undefined) {
@@ -372,14 +385,19 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
  * diagnosis below stays in sync with asValidAction's own requirements. */
 const REQUIRED_FIELDS: Record<ToolName, readonly string[]> = {
   check_availability: ['date', 'time', 'guests'],
-  book_table: ['name', 'phone', 'date', 'time', 'guests'],
+  book_table: ['name', 'phone', 'email', 'date', 'time', 'guests'],
   cancel_booking: ['confirmationCode'],
   modify_booking: ['confirmationCode', 'guests'],
 };
 const KNOWN_TOOL_NAMES = new Set<string>(Object.keys(REQUIRED_FIELDS));
 
 function isFieldCoercible(field: string, value: unknown): boolean {
-  return field === 'guests' ? coerceGuests(value) !== null : coerceText(value) !== undefined;
+  if (field === 'guests') return coerceGuests(value) !== null;
+  // An address that cannot be normalised counts as missing, so the model gets
+  // the same targeted "ask the guest for it" reminder instead of a generic
+  // protocol complaint it cannot act on.
+  if (field === 'email') return normalizeEmail(value) !== null;
+  return coerceText(value) !== undefined;
 }
 
 /**
@@ -436,6 +454,7 @@ async function executeTool(action: ToolAction): Promise<Record<string, unknown>>
     result = (await bookTable(
       input.name as string,
       input.phone as string,
+      input.email as string,
       input.date as string,
       input.time as string,
       input.guests as number,

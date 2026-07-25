@@ -71,16 +71,21 @@ export async function POST(request: Request) {
   }
 
   if (name === 'book_table') {
+    // The address arrives from a speech transcript, so it is the dirtiest
+    // input in the system ("anna kukac example pont hu", stray spaces,
+    // casing); bookTable normalises it and rejects only what is truly
+    // unusable.
     const result = await bookTable(
       String(args.name ?? ''),
       String(args.phone ?? ''),
+      String(args.email ?? ''),
       String(args.date ?? ''),
       String(args.time ?? ''),
       coerceGuests(args.guests),
     );
     console.log(
       '[RETELL_DEBUG] book_table',
-      JSON.stringify({ args: { ...args, phone: '[redacted]' }, success: result.success, code: result.confirmationCode ?? null, reason: result.reason ?? null }),
+      JSON.stringify({ args: { ...args, phone: '[redacted]', email: '[redacted]' }, success: result.success, code: result.confirmationCode ?? null, reason: result.reason ?? null }),
     );
     return NextResponse.json(result);
   }
