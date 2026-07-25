@@ -159,11 +159,12 @@ confirmed all details and the deposit. Returns the confirmation code."
   "properties": {
     "name":   { "type": "string", "description": "Guest full name" },
     "phone":  { "type": "string", "description": "Guest phone number" },
+    "email":  { "type": "string", "description": "Guest e-mail address for the confirmation" },
     "date":   { "type": "string", "description": "Reservation date, YYYY-MM-DD" },
     "time":   { "type": "string", "description": "Seating time, HH:MM, 24-hour" },
     "guests": { "type": "integer", "description": "Party size" }
   },
-  "required": ["name", "phone", "date", "time", "guests"]
+  "required": ["name", "phone", "email", "date", "time", "guests"]
 }
 ```
 
@@ -180,6 +181,9 @@ hozzárendelése. A függvényhívások a Vercel Logs-ban `[RETELL_DEBUG]` /
   (lásd `src/lib/booking.ts` seam-komment). Két csatorna (web chat + voice)
   mellett az éles használathoz valódi adatbázis kell, különben a
   kapacitás-számláló példányonként eltérhet.
-- Az e-mail visszaigazolás (EmailJS) kliensoldali, ezért a telefonos
-  foglalásokról jelenleg nem megy e-mail — ha kell, a `bookTable`-be épített
-  szerveroldali e-mail (pl. Resend) a következő lépés.
+- Az e-mail visszaigazolás mostantól SZERVEROLDALI (`src/lib/email.ts`,
+  EmailJS REST API), így a telefonos foglalásokról is megy visszaigazoló, a
+  lemondásokról pedig a vendégnek és az étteremnek egyaránt értesítő. Ehhez
+  az agentnek be kell gyűjtenie az e-mail címet is — a hangátiratból érkező
+  "koszos" cím (pl. "anna kukac example pont hu") normalizálva lesz. A
+  beállítást lásd: EMAIL_SETUP.md.

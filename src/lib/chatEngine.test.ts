@@ -126,7 +126,7 @@ test('detectLang picks the guest language for the fallback', () => {
 // ---------------------------------------------------------------------------
 test('announced "let me check" forces the real check_availability tool before answering', async () => {
   const date = nextDow(6);
-  bookTable('Existing', '+36301234567', date, '20:00', 12); // 38 free
+  bookTable('Existing', '+36301234567', 'vendeg@example.com', date, '20:00', 12); // 38 free
 
   const model = scriptedModel([
     '{"type":"say","message":"Máris ellenőrzöm, egy pillanat türelmét."}',
@@ -153,7 +153,7 @@ test('announced "let me check" forces the real check_availability tool before an
 // ---------------------------------------------------------------------------
 test('12 booked + 30 requested same date: agent confirms availability (not "19 left, other day")', async () => {
   const date = nextDow(6);
-  bookTable('Existing', '+36301234567', date, '20:00', 12);
+  bookTable('Existing', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
 
   const model = scriptedModel([
     `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"21:00","guests":30}}`,
@@ -245,7 +245,7 @@ test('a post-tool past-tense reply is returned, not mistaken for a stall', async
 // ---------------------------------------------------------------------------
 test('agent cancel_booking runs the real cancellation and frees capacity', async () => {
   const date = daysFromToday(10);
-  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const code = booked.confirmationCode!;
 
   const model = scriptedModel([
@@ -262,7 +262,7 @@ test('agent cancel_booking runs the real cancellation and frees capacity', async
 
 test('agent modify_booking runs the real modification (party size reduced)', async () => {
   const date = daysFromToday(11);
-  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const code = booked.confirmationCode!;
 
   const model = scriptedModel([
@@ -286,7 +286,7 @@ test('agent modify_booking runs the real modification (party size reduced)', asy
 test('book_table with guests as a STRING is coerced and executed (regression)', async () => {
   const date = daysFromToday(10);
   const model = scriptedModel([
-    `{"type":"tool","name":"book_table","input":{"name":"Teszt Vendég","phone":"+36301234567","date":"${date}","time":"21:00","guests":"30"}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"Teszt Vendég","phone":"+36301234567","email":"vendeg@example.com","date":"${date}","time":"21:00","guests":"30"}}`,
     '{"type":"say","message":"Köszönjük! A foglalását megerősítettük harminc főre."}',
   ]);
   const result = await runTurn([user('Igen, erősítse meg 30 főre.')], model);
@@ -308,7 +308,7 @@ test('book_table with guests as a STRING is coerced and executed (regression)', 
 test('book_table with a trailing comma in the JSON is repaired and executed', async () => {
   const date = daysFromToday(10);
   const model = scriptedModel([
-    `{"type":"tool","name":"book_table","input":{"name":"Teszt Vendég","phone":"+36301234567","date":"${date}","time":"21:00","guests":30,}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"Teszt Vendég","phone":"+36301234567","email":"vendeg@example.com","date":"${date}","time":"21:00","guests":30,}}`,
     '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
   ]);
   const result = await runTurn([user('Igen, erősítse meg 30 főre.')], model);
@@ -331,7 +331,7 @@ test('check_availability with guests as a string and a numeric phone are coerced
 
   // A phone sent as an unquoted JSON number must be stringified, not rejected.
   const bookModel = scriptedModel([
-    `{"type":"tool","name":"book_table","input":{"name":"AB","phone":36301234567,"date":"${date}","time":"21:00","guests":4}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"AB","phone":36301234567,"email":"vendeg@example.com","date":"${date}","time":"21:00","guests":4}}`,
     '{"type":"say","message":"Megerősítve."}',
   ]);
   const book = await runTurn([user('Foglaljon 4 főre.')], bookModel);
@@ -341,7 +341,7 @@ test('check_availability with guests as a string and a numeric phone are coerced
 
 test('modify_booking with guests as a string is coerced and executed', async () => {
   const date = daysFromToday(11);
-  const booked = bookTable('Vendég', '+36301234567', date, '20:00', 20);
+  const booked = bookTable('Vendég', '+36301234567', 'vendeg@example.com', date, '20:00', 20);
   const code = booked.confirmationCode!;
   const model = scriptedModel([
     `{"type":"tool","name":"modify_booking","input":{"confirmationCode":"${code}","guests":"8"}}`,
@@ -389,7 +389,7 @@ test('A) confirmation round: book_table missing name/phone self-corrects via tar
   const tomorrow = daysFromToday(1);
   const { round2, round2Model } = await runConfirmationRound(round1Script(), [
     `{"type":"tool","name":"book_table","input":{"date":"${tomorrow}","time":"21:00","guests":30}}`,
-    `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","date":"${tomorrow}","time":"21:00","guests":30}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","email":"vendeg@example.com","date":"${tomorrow}","time":"21:00","guests":30}}`,
     '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
   ]);
 
@@ -400,7 +400,7 @@ test('A) confirmation round: book_table missing name/phone self-corrects via tar
   assert.equal(round2.toolCalls[0].result.success, true);
   assert.match(String(round2.toolCalls[0].result.confirmationCode), /^EP-\d{4}$/);
   // The retry the model received named the exact missing fields.
-  assert.match(round2Model.calls[1].suffix, /missing required field\(s\): name, phone/);
+  assert.match(round2Model.calls[1].suffix, /missing required field\(s\): name, phone, email/);
 });
 
 test('A-persist) confirmation round: if the model NEVER supplies name/phone, it still degrades gracefully (safety net intact)', async () => {
@@ -418,15 +418,15 @@ test('A-persist) confirmation round: if the model NEVER supplies name/phone, it 
 test('B) confirmation round: book_table with name/phone as null self-corrects via targeted reminder', async () => {
   const tomorrow = daysFromToday(1);
   const { round2, round2Model } = await runConfirmationRound(round1Script(), [
-    `{"type":"tool","name":"book_table","input":{"name":null,"phone":null,"date":"${tomorrow}","time":"21:00","guests":30}}`,
-    `{"type":"tool","name":"book_table","input":{"name":"Nagy Péter","phone":"+36201112233","date":"${tomorrow}","time":"21:00","guests":30}}`,
+    `{"type":"tool","name":"book_table","input":{"name":null,"phone":null,"email":null,"date":"${tomorrow}","time":"21:00","guests":30}}`,
+    `{"type":"tool","name":"book_table","input":{"name":"Nagy Péter","phone":"+36201112233","email":"vendeg@example.com","date":"${tomorrow}","time":"21:00","guests":30}}`,
     '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
   ]);
 
   assert.ok(!round2.error);
   assert.equal(round2.toolCalls.length, 1);
   assert.equal(round2.toolCalls[0].result.success, true);
-  assert.match(round2Model.calls[1].suffix, /missing required field\(s\): name, phone/);
+  assert.match(round2Model.calls[1].suffix, /missing required field\(s\): name, phone, email/);
 });
 
 // --- C) control: model correctly re-asks for missing info -----------------
@@ -444,7 +444,7 @@ test('C) confirmation round: model correctly re-asking for name/phone is unaffec
 test('D) confirmation round: book_table with "input" double-encoded as a JSON string is decoded and succeeds immediately', async () => {
   const tomorrow = daysFromToday(1);
   const { round2, round2Model } = await runConfirmationRound(round1Script(), [
-    `{"type":"tool","name":"book_table","input":"{\\"name\\":\\"Kovács Anna\\",\\"phone\\":\\"+36301234567\\",\\"date\\":\\"${tomorrow}\\",\\"time\\":\\"21:00\\",\\"guests\\":30}"}`,
+    `{"type":"tool","name":"book_table","input":"{\\"name\\":\\"Kovács Anna\\",\\"phone\\":\\"+36301234567\\",\\"email\\":\\"vendeg@example.com\\",\\"date\\":\\"${tomorrow}\\",\\"time\\":\\"21:00\\",\\"guests\\":30}"}`,
     '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
   ]);
 
@@ -498,7 +498,7 @@ test('next-step stall: guest supplies name+phone, agent narrates the next step i
     round1Script(),
     [
       '{"type":"say","message":"A következő lépés a foglalás rögzítése lenne a megadott névvel és telefonszámmal: Kovács Anna, +36301234567."}',
-      `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","date":"${daysFromToday(1)}","time":"21:00","guests":30}}`,
+      `{"type":"tool","name":"book_table","input":{"name":"Kovács Anna","phone":"+36301234567","email":"vendeg@example.com","date":"${daysFromToday(1)}","time":"21:00","guests":30}}`,
       '{"type":"say","message":"Köszönjük! A foglalását megerősítettük."}',
     ],
     'Szeretnék asztalt foglalni holnapra este 21:00-ra, 30 főre.',
@@ -576,7 +576,7 @@ test('capacity sanity: 36 guests fit an empty evening, and fit EXACTLY when 36 s
   assert.deepEqual(checkAvailability(date, '20:00', 36), { available: true, remainingCapacity: 50 });
 
   // Exactly-fits boundary: 14 already booked → 36 remain → a 36-party fits.
-  assert.equal(bookTable('Teszt Elek', '+36301112222', date, '20:00', 14).success, true);
+  assert.equal(bookTable('Teszt Elek', '+36301112222', 'vendeg@example.com', date, '20:00', 14).success, true);
   assert.deepEqual(checkAvailability(date, '20:00', 36), { available: true, remainingCapacity: 36 });
   // One more than remains is correctly refused — the boundary is not off-by-one.
   assert.equal(checkAvailability(date, '20:00', 37).available, false);
@@ -695,7 +695,7 @@ test('36 guests: a correct confirmation first time passes through untouched, wit
 
 test('exactly-fits boundary (36 requested, exactly 36 left): still confirmed, never refused', async () => {
   const date = daysFromToday(1);
-  assert.equal(bookTable('Teszt Elek', '+36301112222', date, '20:00', 14).success, true);
+  assert.equal(bookTable('Teszt Elek', '+36301112222', 'vendeg@example.com', date, '20:00', 14).success, true);
 
   const model = scriptedModel([
     `{"type":"tool","name":"check_availability","input":{"date":"${date}","time":"20:00","guests":36}}`,
@@ -712,7 +712,7 @@ test('exactly-fits boundary (36 requested, exactly 36 left): still confirmed, ne
 
 test('regression: a genuinely full evening still gets its legitimate apology, unchanged', async () => {
   const date = daysFromToday(1);
-  assert.equal(bookTable('Teszt Elek', '+36301112222', date, '20:00', 39).success, true);
+  assert.equal(bookTable('Teszt Elek', '+36301112222', 'vendeg@example.com', date, '20:00', 39).success, true);
 
   const apology =
     'Sajnálattal közlöm, hogy arra az estére már csak tizenegy szabad helyünk maradt. Ajánlom a következő estét.';

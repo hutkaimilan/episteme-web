@@ -1,5 +1,6 @@
 import { extractJson, hasSuspiciousToolSyntax, parseWholeJson } from './extractJson';
 import { bookTable, cancelBooking, checkAvailability, modifyBooking } from './booking';
+import { normalizeEmail } from './email';
 
 /**
  * Turn engine for the EPISTEME AI receptionist. Deliberate architecture: NO
@@ -237,8 +238,20 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
     if (obj.name === 'book_table') {
       const name = coerceText(input.name);
       const phone = coerceText(input.phone);
-      if (name !== undefined && phone !== undefined && date !== undefined && time !== undefined && guests !== null) {
-        return { type: 'tool', name: 'book_table', input: { ...input, name, phone, date, time, guests } };
+      // The address is normalised here (lowercased, "mailto:"/angle brackets
+      // and stray spaces stripped) so a messy but valid address is repaired
+      // rather than bounced; a genuinely unusable one stays undefined and is
+      // reported through the same missing-field reminder as name/phone.
+      const email = normalizeEmail(input.email) ?? undefined;
+      if (
+        name !== undefined &&
+        phone !== undefined &&
+        email !== undefined &&
+        date !== undefined &&
+        time !== undefined &&
+        guests !== null
+      ) {
+        return { type: 'tool', name: 'book_table', input: { ...input, name, phone, email, date, time, guests } };
       }
     }
     if (obj.name === 'cancel_booking' && confirmationCode !== undefined) {
@@ -255,14 +268,19 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
  * diagnosis below stays in sync with asValidAction's own requirements. */
 const REQUIRED_FIELDS: Record<ToolName, readonly string[]> = {
   check_availability: ['date', 'time', 'guests'],
-  book_table: ['name', 'phone', 'date', 'time', 'guests'],
+  book_table: ['name', 'phone', 'email', 'date', 'time', 'guests'],
   cancel_booking: ['confirmationCode'],
   modify_booking: ['confirmationCode', 'guests'],
 };
 const KNOWN_TOOL_NAMES = new Set<string>(Object.keys(REQUIRED_FIELDS));
 
 function isFieldCoercible(field: string, value: unknown): boolean {
-  return field === 'guests' ? coerceGuests(value) !== null : coerceText(value) !== undefined;
+  if (field === 'guests') return coerceGuests(value) !== null;
+  // An address that cannot be normalised counts as missing, so the model gets
+  // the same targeted "ask the guest for it" reminder instead of a generic
+  // protocol complaint it cannot act on.
+  if (field === 'email') return normalizeEmail(value) !== null;
+  return coerceText(value) !== undefined;
 }
 
 /**
@@ -319,6 +337,7 @@ function executeTool(action: ToolAction): Record<string, unknown> {
     result = bookTable(
       input.name as string,
       input.phone as string,
+      input.email as string,
       input.date as string,
       input.time as string,
       input.guests as number,

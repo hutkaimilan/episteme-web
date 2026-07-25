@@ -66,7 +66,7 @@ test('empty evening: small party is accepted with all 50 seats free', () => {
 // ===========================================================================
 test('12 already booked + 30 for the SAME date is accepted (12+30=42<=50)', () => {
   const date = nextDow(6); // a Saturday, matching the original bug report
-  const booked = bookTable('Existing Guest', '+36301234567', date, '20:00', 12);
+  const booked = bookTable('Existing Guest', '+36301234567', 'vendeg@example.com', date, '20:00', 12);
   assert.equal(booked.success, true);
 
   const r = checkAvailability(date, AT, 30);
@@ -79,7 +79,7 @@ test('12 already booked + 30 for the SAME date is accepted (12+30=42<=50)', () =
 // ===========================================================================
 test('partially booked evening where the party fits: 20 booked + 25 accepted', () => {
   const date = daysFromToday(12);
-  assert.equal(bookTable('A B', '0612345678', date, '20:00', 20).success, true);
+  assert.equal(bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 20).success, true);
   const r = checkAvailability(date, AT, 25); // 20 + 25 = 45 <= 50
   assert.equal(r.available, true);
   assert.equal(r.remainingCapacity, 30);
@@ -91,7 +91,7 @@ test('partially booked evening where the party fits: 20 booked + 25 accepted', (
 // ===========================================================================
 test('party does not fit: reports exact remaining and fitting alternatives', () => {
   const date = daysFromToday(9);
-  assert.equal(bookTable('A B', '0612345678', date, '20:00', 40).success, true);
+  assert.equal(bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 40).success, true);
   const r = checkAvailability(date, AT, 15); // only 10 remain
   assert.equal(r.available, false);
   assert.equal(r.remainingCapacity, 10);
@@ -110,7 +110,7 @@ test('party does not fit: reports exact remaining and fitting alternatives', () 
 // ===========================================================================
 test('fully booked evening: 0 remaining, evening_fully_booked, alternatives offered', () => {
   const date = daysFromToday(8);
-  assert.equal(bookTable('A B', '0612345678', date, '20:00', 50).success, true);
+  assert.equal(bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 50).success, true);
   const r = checkAvailability(date, AT, 1);
   assert.equal(r.available, false);
   assert.equal(r.remainingCapacity, 0);
@@ -124,9 +124,9 @@ test('fully booked evening: 0 remaining, evening_fully_booked, alternatives offe
 // ===========================================================================
 test('multiple same-date bookings at different times share one 50-seat pool', () => {
   const date = daysFromToday(11);
-  assert.equal(bookTable('One', '0612345678', date, '20:00', 10).success, true);
-  assert.equal(bookTable('Two', '0612345678', date, '21:00', 15).success, true);
-  assert.equal(bookTable('Three', '0612345678', date, '22:00', 5).success, true);
+  assert.equal(bookTable('One', '0612345678', 'vendeg@example.com', date, '20:00', 10).success, true);
+  assert.equal(bookTable('Two', '0612345678', 'vendeg@example.com', date, '21:00', 15).success, true);
+  assert.equal(bookTable('Three', '0612345678', 'vendeg@example.com', date, '22:00', 5).success, true);
   // 30 booked → 20 free for ANY time that evening.
   assert.equal(checkAvailability(date, '23:00', 21).available, false); // 21 > 20
   const ok = checkAvailability(date, '20:30', 20);
@@ -142,12 +142,12 @@ test('multiple same-date bookings at different times share one 50-seat pool', ()
 // ===========================================================================
 test('atomic commit: two concurrent 25-guest bookings cannot both pass when only 30 free', async () => {
   const date = daysFromToday(7);
-  assert.equal(bookTable('Seed', '0612345678', date, '20:00', 20).success, true); // 30 free
+  assert.equal(bookTable('Seed', '0612345678', 'vendeg@example.com', date, '20:00', 20).success, true); // 30 free
 
   // Simulate concurrency: schedule both on the microtask queue and await both.
   const [a, b] = await Promise.all([
-    Promise.resolve().then(() => bookTable('Alice', '0611111111', date, '20:00', 25)),
-    Promise.resolve().then(() => bookTable('Bob', '0622222222', date, '21:00', 25)),
+    Promise.resolve().then(() => bookTable('Alice', '0611111111', 'vendeg@example.com', date, '20:00', 25)),
+    Promise.resolve().then(() => bookTable('Bob', '0622222222', 'vendeg@example.com', date, '21:00', 25)),
   ]);
 
   const successes = [a, b].filter((r) => r.success).length;
@@ -162,8 +162,8 @@ test('atomic commit: two concurrent 25-guest bookings cannot both pass when only
 // ===========================================================================
 test('commit re-validates: a booking is rejected if the pool filled since the check', () => {
   const date = daysFromToday(6);
-  assert.equal(bookTable('Filler', '0612345678', date, '20:00', 45).success, true);
-  const late = bookTable('Late', '0699999999', date, '20:00', 10); // only 5 remain
+  assert.equal(bookTable('Filler', '0612345678', 'vendeg@example.com', date, '20:00', 45).success, true);
+  const late = bookTable('Late', '0699999999', 'vendeg@example.com', date, '20:00', 10); // only 5 remain
   assert.equal(late.success, false);
   assert.match(late.reason ?? '', /insufficient_capacity/);
 });
@@ -197,8 +197,8 @@ test('opening hours: weekday 00:00 rejected, weekend 00:00 accepted', () => {
 
 test('bookTable rejects bad name/phone BEFORE mutating capacity', () => {
   const date = daysFromToday(10);
-  assert.match(bookTable('', '0612345678', date, AT, 2).reason ?? '', /invalid_name/);
-  assert.match(bookTable('Valid Name', '12', date, AT, 2).reason ?? '', /invalid_phone/);
+  assert.match(bookTable('', '0612345678', 'vendeg@example.com', date, AT, 2).reason ?? '', /invalid_name/);
+  assert.match(bookTable('Valid Name', '12', 'vendeg@example.com', date, AT, 2).reason ?? '', /invalid_phone/);
   assert.equal(checkAvailability(date, AT, 2).remainingCapacity, 50); // untouched
 });
 
@@ -208,7 +208,7 @@ test('bookTable rejects bad name/phone BEFORE mutating capacity', () => {
 test('alternatives skip fully-booked days and only offer days that fit', () => {
   const date = daysFromToday(5);
   for (const off of [5, 6, 7]) {
-    assert.equal(bookTable('Full', '0612345678', daysFromToday(off), '20:00', 50).success, true);
+    assert.equal(bookTable('Full', '0612345678', 'vendeg@example.com', daysFromToday(off), '20:00', 50).success, true);
   }
   const r = checkAvailability(date, AT, 10);
   assert.equal(r.available, false);
@@ -224,7 +224,7 @@ test('alternatives skip fully-booked days and only offer days that fit', () => {
 // ===========================================================================
 test('resetBookings clears the pool back to empty', () => {
   const date = daysFromToday(9);
-  bookTable('A B', '0612345678', date, '20:00', 30);
+  bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 30);
   assert.equal(checkAvailability(date, AT, 25).available, false); // 20 free
   const cleared = resetBookings();
   assert.equal(cleared.clearedDates, 1);
@@ -238,7 +238,7 @@ test('resetBookings clears the pool back to empty', () => {
 test('audit log records check and booking decisions with occupancy + decision', () => {
   const date = daysFromToday(9);
   const { audits } = withAuditCapture(() => {
-    bookTable('A B', '0612345678', date, '20:00', 12);
+    bookTable('A B', '0612345678', 'vendeg@example.com', date, '20:00', 12);
     checkAvailability(date, AT, 30);
   });
   const parsed = audits.map((a) => JSON.parse(a) as Record<string, unknown>);
