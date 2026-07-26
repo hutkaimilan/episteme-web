@@ -8,14 +8,21 @@
 2. **Set the environment variable**: in *Project → Settings → Environment
    Variables*, add `GROQ_API_KEY` (Production + Preview) — a free-tier key
    from the Groq Console (https://console.groq.com; no card, no EU
-   restriction — the route calls the `llama-3.3-70b-versatile` model via
-   Groq's OpenAI-compatible API). This is the only required variable; it is
-   read server-side by `src/app/api/chat/route.ts` and must never be
-   prefixed with `NEXT_PUBLIC_`. If you use the Retell AI voice agent, also
-   add `RETELL_FUNCTION_SECRET` (any long random string; see
-   `RETELL_SETUP.md`).
-3. **Deploy**: trigger the first deployment. Every push to the connected
-   branch redeploys automatically.
+   restriction — the route calls Groq's OpenAI-compatible API). This is the
+   only required variable; it is read server-side by
+   `src/app/api/chat/route.ts` and must never be prefixed with
+   `NEXT_PUBLIC_`. If you use the Retell AI voice agent, also add
+   `RETELL_FUNCTION_SECRET` (any long random string; see `RETELL_SETUP.md`).
+3. **(Optional) Pick the model**: `GROQ_MODEL` selects which Groq model the
+   receptionist uses. Unset it and the code default `llama-3.1-8b-instant`
+   applies — the model with the largest free daily allowance. Set it to
+   `llama-3.3-70b-versatile` for the stronger (and much more rate-limited)
+   model. Changing models is an env edit plus a redeploy; it never requires
+   a code change.
+4. **Deploy**: trigger the first deployment. Every push to the connected
+   branch redeploys automatically. Note that changing an environment
+   variable does *not* redeploy on its own — after editing one, go to
+   *Deployments → ⋯ → Redeploy* for it to take effect.
 
 ## Notes
 

@@ -23,7 +23,12 @@ import { callGroqApi } from '@/lib/groqClient';
 // (Vercel clamps this to whatever the plan allows).
 export const maxDuration = 60;
 
-const MODEL = 'llama-3.3-70b-versatile';
+// Model is env-driven so a rate-limit or quality change is a Vercel env edit
+// + redeploy, never a code change. Default: llama-3.1-8b-instant, whose free
+// daily allowance is far larger than llama-3.3-70b-versatile's (~1000 req /
+// ~100K tokens per rolling 24h), which production exhausted. Set GROQ_MODEL
+// to llama-3.3-70b-versatile to switch back.
+const MODEL = process.env.GROQ_MODEL ?? 'llama-3.1-8b-instant';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
