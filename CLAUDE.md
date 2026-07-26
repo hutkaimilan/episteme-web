@@ -8,7 +8,7 @@ Ultra-luxus fine dining étterem egyoldalas (single-page) marketing weboldala + 
 - Tailwind CSS (design tokenek lentről). Framer Motion animációkhoz. lucide-react ikonok. clsx + tailwind-merge.
 - Fontok: next/font/google → Cormorant Garamond (display), Inter (UI/body).
 - i18n: kliens-oldali, context-alapú (useI18n()), NEM route-alapú. Nyelvek: hu (alap), en, es. localStorage-ban tárolt választás.
-- AI recepciós (későbbi fázis): szerver-oldali /app/api/chat/route.ts, a GROQ_API_KEY env változóból (Groq Console, ingyenes szint, kártya és EU-korlátozás nélkül), modell llama-3.3-70b-versatile (OpenAI-kompatibilis végpont), max_tokens: 1000. SOHA nincs API-kulcs a kliensen.
+- AI recepciós (későbbi fázis): szerver-oldali /app/api/chat/route.ts, a GROQ_API_KEY env változóból (Groq Console, ingyenes szint, kártya és EU-korlátozás nélkül), modell a GROQ_MODEL env változóból, alapértelmezés llama-3.1-8b-instant (OpenAI-kompatibilis végpont), max_tokens: 1000. SOHA nincs API-kulcs a kliensen.
 - EmailJS: kliens-oldali, foglalás után. Deploy: Vercel ajánlott (env var-ral).
 
 ## 2. Design tokenek
