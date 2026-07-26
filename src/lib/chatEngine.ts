@@ -241,6 +241,97 @@ function unbackedAvailabilityClaim(message: string, toolCalls: ToolEvent[]): str
   return null;
 }
 
+const OPENING_HOURS_REMINDER =
+  '\n\nSTRICT REMINDER — OPENING HOURS: your previous reply mentioned a clock time the restaurant is not open at. EPISTEME opens at 20:00; the doors close at 00:00 (Mon-Fri) and 01:00 (Sat-Sun), and the last seating is 23:00 (Mon-Fri) / 00:00 (Sat-Sun). Every time you name — especially an EXAMPLE — must fall inside 20:00-23:00 on a weekday and 20:00-00:00 at the weekend. Never offer "hét órakor"/"7 pm"/19:00 or any other hour before 20:00. Rewrite your reply using only real seating times (e.g. "este nyolc órakor", "kilenc órakor", "21:00").';
+
+/**
+ * Hungarian bare hour words. Kept separate from NUMBER_WORDS (which covers
+ * party sizes 1–50 in three languages) because an hour is read differently:
+ * "hét" is 7 o'clock here, never "week", and only because the pattern below
+ * requires an óra/-kor suffix immediately after it.
+ */
+const HU_HOUR_WORDS: Record<string, number> = {
+  egy: 1, két: 2, kettő: 2, három: 3, négy: 4, öt: 5, hat: 6,
+  hét: 7, nyolc: 8, kilenc: 9, tíz: 10, tizenegy: 11, tizenkettő: 12, tizenkét: 12,
+};
+
+/**
+ * A clock time written as HH:MM (or HH.MM). The lookbehind/lookahead keep it
+ * from biting into longer numbers, so the deposit ("275,59 €" / "275.59"),
+ * an ISO date ("2026-07-25") and a code ("EP-1930") are never read as times.
+ */
+const CLOCK_RE = /(?<![\d.,:-])([01]?\d|2[0-4])[:.]([0-5]\d)(?![\d])/g;
+
+/** "hét órakor", "19 órára", "7-kor", "kilenckor" — a bare hour plus the
+ * Hungarian hour suffix. The suffix is mandatory, which is what stops
+ * "amikor"/"akkor"/"rekord" from being parsed as hours. */
+const HU_HOUR_RE = /(?<![\p{L}])(\p{L}+|\d{1,2})\s*(?:-?kor|\s*ór(?:a|akor|ára|ai|át))(?![\p{L}])/giu;
+
+/** "7 pm", "9am", "11 p.m." — the only non-Hungarian bare-hour form covered. */
+const EN_HOUR_RE = /(?<![\d])(\d{1,2})\s*(a|p)\.?\s?m\.?(?![\p{L}])/giu;
+
+/**
+ * The evening's real envelope: doors 20:00 → 00:00 (Mon-Fri) / 01:00
+ * (Sat-Sun). A clock time is IMPOSSIBLE — unusable as a seating, a closing
+ * time or a statement of the opening hours — only when it falls after
+ * closing and before opening, i.e. 02:00–19:59. Anything from 20:00 through
+ * 01:59 is left alone, so the perfectly correct "nyitvatartásunk
+ * 20:00–01:00" sentence can never be flagged.
+ */
+function isImpossibleHour(hour24: number): boolean {
+  return hour24 >= 2 && hour24 <= 19;
+}
+
+/**
+ * Detects a reply naming a clock time the restaurant cannot possibly be
+ * open at. Returns the offending fragment, or null when every time
+ * mentioned is plausible.
+ *
+ * WHY THIS EXISTS: the reported production reply offered "vasárnap hét
+ * órakor" (19:00) as an example seating in the same sentence that stated
+ * the 20:00 opening — a self-contradiction visible to the guest. The system
+ * prompt already carries the correct hours; llama-3.1-8b-instant simply
+ * follows them less reliably than the 70b model did, so the rule needs an
+ * enforcement point outside the prompt.
+ *
+ * DELIBERATELY CONSERVATIVE. A bare hour word is ambiguous between its
+ * morning and evening reading, so it is flagged ONLY when BOTH readings are
+ * impossible — hours 2–7 ("hatkor" = 06:00 or 18:00; both shut). Nine
+ * o'clock ("kilenckor") is left alone because 21:00 is a real seating, and
+ * "egy órakor" because 01:00 is a real closing time. The cost of a false
+ * positive (a correct reply forced through a needless retry) is paid every
+ * time, so the bar for flagging is "wrong under every interpretation".
+ */
+export function mentionsImpossibleTime(text: string): string | null {
+  for (const m of text.matchAll(CLOCK_RE)) {
+    const hour = Number(m[1]);
+    if (isImpossibleHour(hour)) return m[0];
+  }
+
+  for (const m of text.matchAll(HU_HOUR_RE)) {
+    const token = m[1].toLowerCase();
+    const digits = /^\d{1,2}$/.test(token);
+    const hour = digits ? Number(token) : HU_HOUR_WORDS[token];
+    if (typeof hour !== 'number') continue;
+    // A digit above 12 is already an explicit 24h hour; anything 1–12 is
+    // ambiguous and only counts when the evening reading fails too.
+    const impossible =
+      hour > 12
+        ? isImpossibleHour(hour)
+        : isImpossibleHour(hour) && isImpossibleHour(hour + 12);
+    if (impossible) return m[0].trim();
+  }
+
+  for (const m of text.matchAll(EN_HOUR_RE)) {
+    const raw = Number(m[1]);
+    if (raw < 1 || raw > 12) continue;
+    const hour = m[2].toLowerCase() === 'p' ? (raw === 12 ? 12 : raw + 12) : raw % 12;
+    if (isImpossibleHour(hour)) return m[0].trim();
+  }
+
+  return null;
+}
+
 function availabilityConfirmed(toolCalls: ToolEvent[]): boolean {
   const checks = toolCalls.filter((call) => call.name === 'check_availability');
   if (checks.length === 0) return false;
@@ -489,6 +580,8 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   let forceContradictionReminder = false;
   let unbackedRetries = 0;
   let forceUnbackedReminder = false;
+  let hoursRetries = 0;
+  let forceHoursReminder = false;
   let forceFieldReminder: string | null = null;
 
   while (modelCalls < MAX_MODEL_CALLS) {
@@ -501,6 +594,8 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
             ? UNVERIFIED_CONFIRMATION_REMINDER
             : forceContradictionReminder
             ? CONTRADICTION_REMINDER
+            : forceHoursReminder
+            ? OPENING_HOURS_REMINDER
             : forceStallReminder
               ? STALL_REMINDER
               : retriedProtocol
@@ -511,6 +606,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       forceStallReminder = false;
       forceContradictionReminder = false;
       forceUnbackedReminder = false;
+      forceHoursReminder = false;
       forceFieldReminder = null;
     } catch (err) {
       console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
@@ -677,6 +773,33 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
           action.message.slice(0, 200),
         );
         return { message: fallbackMessage(history), toolCalls, error: true };
+      }
+
+      // OPENING-HOURS net: the reply names a clock time the restaurant is
+      // never open at (the reported "vasárnap hét órakor" = 19:00 example,
+      // offered in the same breath as the 20:00 opening). Re-prompt with the
+      // real envelope.
+      //
+      // Unlike the three nets above, this one NEVER degrades to the fallback:
+      // a wrong example hour is a cosmetic fault — it cannot overbook the
+      // room or fabricate a code — so if the model will not correct itself,
+      // the guest is still better served by a slightly-off reply than by
+      // "connection lost". Retry, then let it through and log it.
+      const badTime = mentionsImpossibleTime(action.message);
+      if (badTime && hoursRetries < MAX_STALL_RETRIES) {
+        hoursRetries++;
+        forceHoursReminder = true;
+        console.error(
+          `[GROQ_ERROR] Reply names a time outside opening hours ("${badTime}") (retry ${hoursRetries}/${MAX_STALL_RETRIES}); message:`,
+          action.message.slice(0, 200),
+        );
+        continue;
+      }
+      if (badTime) {
+        console.error(
+          `[GROQ_ERROR] Model kept naming an out-of-hours time ("${badTime}") after retries; delivering the reply anyway; message:`,
+          action.message.slice(0, 200),
+        );
       }
 
       return { message: action.message, toolCalls };
