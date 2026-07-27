@@ -119,7 +119,6 @@ export type Dictionary = {
     connectionError: string;
     ledgerTitle: string;
     guestsUnit: string;
-    emailFailed: string;
   };
   contact: {
     addressLabel: string;
@@ -505,8 +504,6 @@ const hu: Dictionary = {
       'Elnézését kérjük, a kapcsolat megszakadt — kérem, próbálja meg újra néhány pillanat múlva.',
     ledgerTitle: 'Rögzített foglalásai',
     guestsUnit: 'fő',
-    emailFailed:
-      'Az e-mail visszaigazolást most nem sikerült elküldeni — foglalása ettől függetlenül érvényes.',
   },
   contact: {
     addressLabel: 'Cím',
@@ -894,8 +891,6 @@ const en: Dictionary = {
       'Our apologies — the connection was interrupted. Please try again in a moment.',
     ledgerTitle: 'Your reservations',
     guestsUnit: 'guests',
-    emailFailed:
-      'The e-mail confirmation could not be sent just now — your reservation remains valid regardless.',
   },
   contact: {
     addressLabel: 'Address',
@@ -1283,8 +1278,6 @@ const es: Dictionary = {
       'Le rogamos nos disculpe: la conexión se ha interrumpido. Inténtelo de nuevo en unos instantes.',
     ledgerTitle: 'Sus reservas',
     guestsUnit: 'personas',
-    emailFailed:
-      'No se ha podido enviar la confirmación por correo electrónico; su reserva sigue siendo válida.',
   },
   contact: {
     addressLabel: 'Dirección',

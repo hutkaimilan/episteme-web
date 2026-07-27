@@ -364,11 +364,22 @@ export async function bookTable(
     backend: store.backend,
   });
 
-  // Confirmation e-mail: deliberately fire-and-forget. The atomic reserve +
-  // code claim above have already committed, so a mail failure must never
-  // turn a real reservation into an error — notifyBookingConfirmed never
-  // throws, it logs and resolves false.
-  void notifyBookingConfirmed({ confirmationCode: code, name, email: guestEmail, phone, date, time, guests });
+  // Confirmation e-mail: AWAITED, not fire-and-forget.
+  //
+  // It used to be `void notifyBookingConfirmed(…)`, which is wrong on
+  // serverless: the moment the route returns its response, Vercel may freeze
+  // or reclaim the instance, and a still-pending fetch to EmailJS dies with
+  // it. Live evidence — reservation EP-6127 produced NEITHER [EMAIL_SENT]
+  // NOR [EMAIL_ERROR] in the Vercel log, the exact signature of a promise
+  // that never got to run. Awaiting is what makes delivery (and its log
+  // line) actually happen.
+  //
+  // The two reasons it was fire-and-forget in the first place still hold,
+  // and are both preserved: the atomic reserve + code claim above have
+  // ALREADY committed, and notifyBookingConfirmed never throws — it logs and
+  // resolves false. So a mail failure still cannot turn a real reservation
+  // into an error; it only costs the round-trip, which EMAIL_TIMEOUT_MS caps.
+  await notifyBookingConfirmed({ confirmationCode: code, name, email: guestEmail, phone, date, time, guests });
 
   return { success: true, confirmationCode: code };
 }
@@ -401,10 +412,13 @@ export async function cancelBooking(confirmationCode: string): Promise<CancelRes
   const remaining = await remainingFor(record.date);
   audit({ op: 'cancel_booking', code, date: record.date, guests: record.guests, decision: 'cancelled', remaining, backend: store.backend });
 
-  // Cancellation notice to BOTH the guest who booked and the restaurant.
-  // Fire-and-forget for the same reason as the confirmation above: the seats
-  // are already back in the pool and must stay that way regardless of mail.
-  void notifyBookingCancelled({
+  // Cancellation notice to BOTH the guest who booked and the restaurant —
+  // AWAITED for the same serverless reason as the confirmation above (a
+  // pending promise dies when the instance is reclaimed). The seats are
+  // already back in the pool and stay that way regardless of what the mail
+  // does; notifyBookingCancelled never throws. The two sends inside it run
+  // in parallel, so awaiting costs one round-trip, not two.
+  await notifyBookingCancelled({
     confirmationCode: code,
     name: record.name,
     email: record.email,

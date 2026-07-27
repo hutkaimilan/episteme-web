@@ -14,4 +14,12 @@ export const RESTAURANT = {
   capacity: 50,
   depositEur: '275,59 €',
   contactEmail: 'epistemebudapest@gmail.com',
+  /**
+   * Where the internal [ADMIN] cancellation copy goes. Deliberately a
+   * SEPARATE constant from contactEmail: contactEmail is the public address
+   * printed in guest-facing letters and on the site, while this one is an
+   * operations inbox nobody outside the restaurant ever sees. Overridable
+   * without a code change so the operations address can move on its own.
+   */
+  adminEmail: process.env.RESTAURANT_ADMIN_EMAIL ?? 'bizniszpappa@gmail.com',
 } as const;
