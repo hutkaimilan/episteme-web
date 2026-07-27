@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import emailjs from '@emailjs/browser';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { CalendarCheck, Search, Send } from 'lucide-react';
 import { useI18n } from '@/i18n/LanguageProvider';
@@ -10,9 +9,6 @@ import { parseItalics } from '@/lib/utils';
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-const EMAILJS_SERVICE_ID = 'service_vk94auf';
-const EMAILJS_TEMPLATE_ID = 'template_nezbzjh';
-const EMAILJS_PUBLIC_KEY = 'bI2mj0KaJZMJnD6Lq';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -75,16 +71,8 @@ export default function ReservationSection() {
   const [pending, setPending] = useState(false);
   const [activePill, setActivePill] = useState<ToolName | null>(null);
   const [bookings, setBookings] = useState<LedgerEntry[]>([]);
-  const [emailFailed, setEmailFailed] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Some EmailJS SDK setups require an explicit init before send() works;
-  // v4 also accepts a per-call publicKey, so doing both is safe and covers
-  // either path.
-  useEffect(() => {
-    emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
-  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -92,44 +80,6 @@ export default function ReservationSection() {
       el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' });
     }
   }, [transcript, activePill, pending, reduceMotion]);
-
-  const sendConfirmationEmail = async (call: ToolEvent) => {
-    // Template variable names must exactly match the EmailJS dashboard
-    // template: guest_name, guest_phone, reservation_date, reservation_time,
-    // guest_count, confirmation_code.
-    const templateParams = {
-      guest_name: String(call.input.name ?? ''),
-      guest_phone: String(call.input.phone ?? ''),
-      reservation_date: String(call.input.date ?? ''),
-      reservation_time: String(call.input.time ?? ''),
-      guest_count: String(call.input.guests ?? ''),
-      confirmation_code: String(call.result.confirmationCode ?? ''),
-    };
-    console.log(
-      '[EMAILJS_DEBUG] attempting send',
-      JSON.stringify({
-        serviceId: EMAILJS_SERVICE_ID,
-        templateId: EMAILJS_TEMPLATE_ID,
-        templateParams,
-      }),
-    );
-    try {
-      const response = await emailjs.send(
-        EMAILJS_SERVICE_ID,
-        EMAILJS_TEMPLATE_ID,
-        templateParams,
-        { publicKey: EMAILJS_PUBLIC_KEY },
-      );
-      console.log('[EMAILJS_DEBUG] send succeeded:', response.status, response.text);
-    } catch (err) {
-      // The booking itself already succeeded server-side; e-mail delivery is
-      // best-effort — surface only a subtle non-blocking note.
-      const status = (err as { status?: number })?.status;
-      const text = (err as { text?: string })?.text;
-      console.error('[EMAILJS_ERROR] send failed:', err, '| status:', status ?? 'n/a', '| text:', text ?? 'n/a');
-      setEmailFailed(true);
-    }
-  };
 
   const send = async () => {
     const content = input.trim();
@@ -185,7 +135,6 @@ export default function ReservationSection() {
               code: call.result.confirmationCode as string,
             },
           ]);
-          void sendConfirmationEmail(call);
         }
       }
 
@@ -389,11 +338,6 @@ export default function ReservationSection() {
                   </motion.li>
                 ))}
               </ul>
-              {emailFailed && (
-                <p className="mt-3 text-xs font-light italic text-ivory-faint">
-                  {t('reservation.emailFailed')}
-                </p>
-              )}
             </motion.div>
           )}
         </AnimatePresence>

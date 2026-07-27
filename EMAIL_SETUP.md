@@ -26,7 +26,7 @@ csak a szerver hajtja meg. Nem kell másik szolgáltatóra váltani.
 
 Az EmailJS ingyenes csomagja egyetlen sablont enged. Ezért a dashboardban lévő
 sablon szándékosan "buta": mindössze három változót renderel —
-`{{to_email}}`, `{{subject}}` és `{{message_body}}`. **Mindkét levél teljes
+`{{to_email}}`, `{{subject}}` és `{{message}}`. **Mindkét levél teljes
 szövegét a kód állítja össze** (`src/lib/email.ts`,
 `renderConfirmationEmail` / `renderCancellationEmail`), a behelyettesített
 adatokkal együtt.
@@ -61,8 +61,9 @@ meglévő sablonodat, nem kell újat létrehozni.
 | Mező          | Érték                |
 | ------------- | -------------------- |
 | **To Email**  | `{{to_email}}`       |
+| **To Name**   | `{{to_name}}`        |
 | **Subject**   | `{{subject}}`        |
-| **Content**   | `{{message_body}}`   |
+| **Content**   | `{{message}}`        |
 
 A **Content** mezőben tényleg csak ez az egy változó legyen, más semmi. A
 tartalom formázását (sortörések, megszólítás, adatok) a kód végzi.
@@ -75,7 +76,7 @@ Ha a sablon szerkesztője HTML módban van, a sortörések megtartásához tedd 
 változót egy `<pre>` blokkba, vagy kapcsold a sablont sima szöveges módra:
 
 ```html
-<pre style="font-family: inherit; white-space: pre-wrap;">{{message_body}}</pre>
+<pre style="font-family: inherit; white-space: pre-wrap;">{{message}}</pre>
 ```
 
 Mentés után másold ki a **Template ID**-t (`template_...`).
@@ -157,19 +158,15 @@ EMAILJS_TEMPLATE_ID=<a 3. lépésben beállított sablon Template ID-ja>
 
 ---
 
-## Megjegyzés a meglévő kliens-oldali küldésről
+## A régi, kliens-oldali küldés — KIVEZETVE
 
-A `src/components/ReservationSection.tsx` továbbra is küld egy levelet
-foglaláskor a régi `template_nezbzjh` sablonnal, a böngészőből. Ezt
-**szándékosan nem nyúltam hozzá**, mert nem tudom, kinek megy (a címzett a
-sablonban van beállítva) — ha az étteremnek szól, akkor a mostani két új levél
-mellett hasznos kiegészítés marad.
+Korábban a `src/components/ReservationSection.tsx` a böngészőből is küldött
+egy levelet foglaláskor, hardcode-olt azonosítókkal (`template_nezbzjh`) és
+a régi változónevekkel (`guest_name`, `confirmation_code`, stb.). Ez a sablon
+átállítása után üres levelet küldött volna egy fix dashboard-címre, ezért
+**eltávolítottuk**: a hívást, a hozzá tartozó függvényt, az `@emailjs/browser`
+függőséget és a fölöslegessé vált `reservation.emailFailed` fordításokat is.
 
-Figyelem: mivel most **egyetlen** sablon van, valószínű, hogy ez ugyanaz a
-sablon, amit a 3. lépésben átállítottál `{{message_body}}`-ra. Ebben az esetben
-a kliens-oldali küldés üres levelet fog küldeni (a régi változóneveit —
-`guest_name`, `confirmation_code` stb. — a sablon már nem tartalmazza). Ilyenkor
-a régit érdemes kikapcsolni: a `ReservationSection.tsx`-ben töröld a
-`void sendConfirmationEmail(call);` sort (és utána a fölöslegessé váló
-`sendConfirmationEmail` függvényt, az `emailjs` importot és az `emailFailed`
-state-et). Szólj, és megcsinálom.
+Mostantól **minden** levél a szerveroldali, tesztelt úton megy
+(`src/lib/email.ts`), és a címzettet mindig a kód adja meg a `{{to_email}}`
+paraméterben.

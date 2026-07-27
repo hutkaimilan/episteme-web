@@ -18,7 +18,7 @@ import { RESTAURANT } from './restaurant';
  *
  * ONE TEMPLATE FOR BOTH MAILS. The EmailJS free plan allows a single
  * template, so the dashboard template is deliberately kept "dumb": it only
- * renders {{subject}} and {{message_body}} to {{to_email}}. Every word of
+ * renders {{subject}} and {{message}} to {{to_email}}/{{to_name}}. Every word of
  * both letters is composed HERE, in renderConfirmationEmail /
  * renderCancellationEmail, which means the wording is version-controlled and
  * unit-tested rather than living in a dashboard nobody can diff.
@@ -48,8 +48,12 @@ export type CancellationEmailDetails = BookingEmailDetails & {
   cancelledAt: string;
 };
 
-/** One rendered letter, ready to hand to the shared template. */
-export type RenderedEmail = { subject: string; message_body: string };
+/**
+ * One rendered letter, ready to hand to the shared template. The field names
+ * are exactly the EmailJS template variables — {{subject}} and {{message}} —
+ * so a rename here is a dashboard change too.
+ */
+export type RenderedEmail = { subject: string; message: string };
 
 /** Sends one already-rendered mail. Injectable so tests never hit the network. */
 export type EmailTransport = (templateId: string, params: Record<string, string>) => Promise<void>;
@@ -93,6 +97,15 @@ function redactSecrets(value: string): string {
   return key ? value.split(key).join('[REDACTED_KEY]') : value;
 }
 
+/**
+ * Hard ceiling on one EmailJS call. The send is AWAITED inside the booking
+ * path (see the note in booking.ts), so an EmailJS outage that merely hangs
+ * — rather than failing fast — would otherwise stall the guest's reply for
+ * the whole function budget. Aborting at 5s turns that into a logged
+ * [EMAIL_ERROR] and a booking that still answers promptly.
+ */
+const EMAIL_TIMEOUT_MS = 5000;
+
 async function emailjsTransport(templateId: string, params: Record<string, string>): Promise<void> {
   const config = readConfig();
   if (!config) throw new Error('EmailJS is not configured');
@@ -100,6 +113,7 @@ async function emailjsTransport(templateId: string, params: Record<string, strin
   const res = await fetch(EMAILJS_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
     body: JSON.stringify({
       service_id: config.serviceId,
       template_id: templateId,
@@ -174,8 +188,8 @@ function formatTimestamp(iso: string): string {
 
 export function renderConfirmationEmail(details: BookingEmailDetails): RenderedEmail {
   return {
-    subject: `Foglalás visszaigazolása — ${RESTAURANT.name}`,
-    message_body: `Kedves ${details.name}!
+    subject: `Foglalás visszaigazolva - ${RESTAURANT.name}`,
+    message: `Kedves ${details.name}!
 
 Köszönjük foglalását az ${RESTAURANT.name} étterembe. Az alábbi részleteket rögzítettük:
 
@@ -196,8 +210,8 @@ ${RESTAURANT.name}`,
 
 export function renderCancellationEmail(details: CancellationEmailDetails): RenderedEmail {
   return {
-    subject: `Foglalás lemondva — ${RESTAURANT.name}`,
-    message_body: `Kedves ${details.name}!
+    subject: `Foglalás lemondva - ${RESTAURANT.name}`,
+    message: `Kedves ${details.name}!
 
 Az alábbi foglalás lemondásra került:
 
@@ -214,14 +228,61 @@ ${RESTAURANT.name}`,
   };
 }
 
+/**
+ * The restaurant's own copy of a cancellation. Deliberately a DIFFERENT
+ * letter from the guest's, not the same text forwarded: it is addressed to
+ * nobody (no "Kedves …!" salutation — the reader is staff, not the guest),
+ * it names the guest and their contact details so the front desk can act on
+ * it, and its subject leads with [ADMIN] and the code so it sorts and
+ * searches cleanly in a shared inbox.
+ */
+export function renderAdminCancellationEmail(details: CancellationEmailDetails): RenderedEmail {
+  return {
+    subject: `[ADMIN] Lemondott foglalás - ${details.confirmationCode}`,
+    message: `Lemondott foglalás.
+
+Foglalási kód: ${details.confirmationCode}
+Dátum: ${details.date}
+Időpont: ${details.time}
+Létszám: ${details.guests} fő
+
+Vendég: ${details.name}
+E-mail: ${details.email}
+Telefon: ${details.phone}
+
+Lemondás időpontja: ${formatTimestamp(details.cancelledAt)}
+
+A helyek visszakerültek az adott este szabad kapacitásába.
+
+${RESTAURANT.name}`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch — every path below is non-throwing by contract.
 // ---------------------------------------------------------------------------
 
-async function dispatch(letter: RenderedEmail, recipient: string, label: string): Promise<boolean> {
+/**
+ * Hands one letter to the single shared EmailJS template. The four parameter
+ * names below ARE the template's variables: {{to_email}}, {{to_name}},
+ * {{subject}}, {{message}}. Everything else — the wording, the salutation,
+ * which details appear — is composed in this module, so the dashboard
+ * template stays "dumb" and every word remains version-controlled.
+ */
+async function dispatch(
+  letter: RenderedEmail,
+  recipient: string,
+  recipientName: string,
+  label: string,
+): Promise<boolean> {
   const transport = transportOverride ?? (isEmailConfigured() ? emailjsTransport : null);
   const templateId = process.env.EMAILJS_TEMPLATE_ID ?? '';
-  const params = { to_email: recipient, subject: letter.subject, message_body: letter.message_body };
+  const params = {
+    to_email: recipient,
+    to_name: recipientName,
+    subject: letter.subject,
+    message: letter.message,
+  };
 
   if (!transport) {
     console.warn(`[EMAIL_SKIPPED] ${label}: EmailJS is not configured (set EMAILJS_* env vars); no mail sent to ${recipient}`);
@@ -245,25 +306,36 @@ export async function notifyBookingConfirmed(details: BookingEmailDetails): Prom
     console.error('[EMAIL_ERROR] booking confirmation skipped: no usable guest address for', details.confirmationCode);
     return false;
   }
-  return dispatch(renderConfirmationEmail(details), address, 'booking confirmation');
+  return dispatch(renderConfirmationEmail(details), address, details.name, 'booking confirmation');
 }
 
 /**
- * Cancellation notice to BOTH parties: the guest who booked, and the
- * restaurant. The two sends are independent — the restaurant is still told
- * even if the guest's address is missing or bounces, and vice versa.
+ * Cancellation notice to BOTH parties, as TWO separate sends through the one
+ * shared template: the guest gets the courteous notice, the restaurant gets
+ * the [ADMIN] operations copy. The sends are independent — the restaurant is
+ * still told even if the guest's address is missing or bounces, and vice
+ * versa — because losing the internal record is the worse failure of the two.
  */
 export async function notifyBookingCancelled(
   details: CancellationEmailDetails,
 ): Promise<{ guest: boolean; restaurant: boolean }> {
-  const letter = renderCancellationEmail(details);
   const guestAddress = normalizeEmail(details.email);
 
   const [guest, restaurant] = await Promise.all([
     guestAddress
-      ? dispatch(letter, guestAddress, 'cancellation notice (guest)')
+      ? dispatch(
+          renderCancellationEmail(details),
+          guestAddress,
+          details.name,
+          'cancellation notice (guest)',
+        )
       : Promise.resolve(false),
-    dispatch(letter, RESTAURANT.contactEmail, 'cancellation notice (restaurant)'),
+    dispatch(
+      renderAdminCancellationEmail(details),
+      RESTAURANT.adminEmail,
+      RESTAURANT.name,
+      'cancellation notice (restaurant)',
+    ),
   ]);
 
   if (!guestAddress) {

@@ -10,7 +10,6 @@
     "test": "node --import ./scripts/ts-resolve.mjs --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@emailjs/browser": "^4.4.1",
     "@vercel/kv": "^3.0.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.42.2",
