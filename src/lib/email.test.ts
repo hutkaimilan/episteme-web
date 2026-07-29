@@ -11,7 +11,7 @@ import {
   __setEmailTransportForTests,
   type EmailTransport,
 } from './email.ts';
-import { bookTable, cancelBooking, modifyBooking, resetBookings } from './booking.ts';
+import { bookTable, cancelBooking, checkAvailability, modifyBooking, resetBookings } from './booking.ts';
 import { RESTAURANT } from './restaurant.ts';
 import { runTurn, type ChatMessage, type ModelCaller } from './chatEngine.ts';
 
@@ -191,21 +191,32 @@ test('the stored address is the NORMALISED one, so the confirmation reaches a di
   assert.equal(sent[0].params.to_email, 'anna@example.hu');
 });
 
-test('an unusable e-mail is rejected as invalid_email — no booking, no seats taken, no mail', async () => {
+// ===========================================================================
+// THE E-MAIL IS OPTIONAL. It used to be required, and that lost a real
+// reservation: on the Retell voice path the address arrives through speech
+// recognition, and a test call transcribed it as "Utka Ilmilanélmény Kukads
+// Cimentempont". Every other detail was perfect, yet bookTable threw the
+// whole booking away on invalid_email. A table lost to a misheard address is
+// far worse than a booking whose code is read out loud.
+// ===========================================================================
+test('an unusable e-mail no longer loses the booking — it books without a guest mail', async () => {
   const { sent, transport } = captureTransport();
   __setEmailTransportForTests(transport);
   const date = daysFromToday(2);
 
   const result = await bookTable('Kovács Anna', '+36301234567', 'nem-email', date, '21:00', 10);
-  assert.equal(result.success, false);
-  assert.match(result.reason ?? '', /invalid_email/);
-  assert.equal(result.confirmationCode, undefined);
-  await tick();
-  assert.equal(sent.length, 0, 'a rejected booking must not send anything');
 
-  // The seats were never consumed by the failed attempt.
-  const ok = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 50);
-  assert.equal(ok.success, true, 'all 50 seats were still free');
+  assert.equal(result.success, true, 'the reservation stands');
+  assert.match(String(result.confirmationCode), /^EP-\d{4}$/, 'a real code was still issued');
+  assert.equal(result.emailSent, false, 'the caller is told the guest was not mailed');
+
+  // Only the ADMIN copy went out — the restaurant must still learn about it.
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to_email, RESTAURANT.adminEmail);
+
+  // And the seats really were taken: 10 of 50 gone, 41 no longer fits.
+  assert.equal((await bookTable('Nagy Béla', '+36301112233', 'b@example.hu', date, '21:00', 41)).success, false);
+  assert.equal((await bookTable('Kiss Csaba', '+36301112233', 'c@example.hu', date, '21:00', 40)).success, true);
 });
 
 test('a failed e-mail NEVER fails the booking (delivery is best-effort)', async () => {
@@ -570,4 +581,76 @@ test('the admin default is the restaurant address unless RESTAURANT_ADMIN_EMAIL 
     RESTAURANT.adminEmail,
     process.env.RESTAURANT_ADMIN_EMAIL ?? 'epistemebudapest@gmail.com',
   );
+});
+
+// ---------------------------------------------------------------------------
+// OPTIONAL E-MAIL — the three voice-path shapes, side by side, plus proof
+// that capacity is unaffected by which of them arrives.
+// ---------------------------------------------------------------------------
+test('booking with a valid address: success, emailSent true, guest + admin mailed', async () => {
+  const { sent, transport } = captureTransport();
+  __setEmailTransportForTests(transport);
+
+  const r = await bookTable(
+    'Hutkai Milán', '+36301234567', 'hutkaimilan11@gmail.com', daysFromToday(10), '21:00', 6,
+  );
+
+  assert.equal(r.success, true);
+  assert.equal(r.emailSent, true);
+  assert.deepEqual(
+    sent.map((s) => s.params.to_email).sort(),
+    ['hutkaimilan11@gmail.com', RESTAURANT.adminEmail].sort(),
+  );
+});
+
+test('booking with NO address (empty string): success, emailSent false, admin only', async () => {
+  const { sent, transport } = captureTransport();
+  __setEmailTransportForTests(transport);
+
+  const r = await bookTable('Hutkai Milán', '+36301234567', '', daysFromToday(11), '21:00', 6);
+
+  assert.equal(r.success, true, 'an omitted address must never lose the booking');
+  assert.match(String(r.confirmationCode), /^EP-\d{4}$/);
+  assert.equal(r.emailSent, false);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to_email, RESTAURANT.adminEmail);
+});
+
+test('booking with the real mis-transcribed speech: success, and the garbage is NOT stored', async () => {
+  const { sent, transport } = captureTransport();
+  __setEmailTransportForTests(transport);
+  const garbage = 'Utka Ilmilanélmény Kukads Cimentempont.'; // verbatim from the call
+  const date = daysFromToday(12);
+
+  assert.equal(normalizeEmail(garbage), null, 'precondition: this really is unusable');
+
+  const booked = await bookTable('Hutkai Milán', '+36301234567', garbage, date, '21:00', 6);
+  assert.equal(booked.success, true);
+  assert.equal(booked.emailSent, false);
+
+  // The record must not carry the transcript noise: cancelling it later may
+  // not attempt a send to it, and the [ADMIN] letter must stay readable.
+  sent.length = 0;
+  const cancelled = await cancelBooking(booked.confirmationCode!);
+  assert.equal(cancelled.success, true);
+
+  assert.equal(sent.length, 1, 'only the restaurant — there is nobody to notify');
+  assert.equal(sent[0].params.to_email, RESTAURANT.adminEmail);
+  assert.doesNotMatch(sent[0].params.message, /Ilmilanélmény/, 'no transcript noise in the letter');
+  assert.match(sent[0].params.message, /E-mail: nincs megadva/);
+});
+
+test('capacity is identical whichever of the three address shapes arrives', async () => {
+  __setEmailTransportForTests(async () => {});
+  const date = daysFromToday(13);
+
+  await bookTable('Első Vendég', '+36301111111', 'a@example.hu', date, '21:00', 20);
+  await bookTable('Második Vendég', '+36302222222', '', date, '21:00', 20);
+  await bookTable('Harmadik Vendég', '+36303333333', 'Utka Ilmilanélmény Kukads', date, '21:00', 5);
+
+  // 20 + 20 + 5 = 45 taken, so 5 remain: 6 must not fit, 5 must.
+  assert.equal((await checkAvailability(date, '21:00', 6)).available, false);
+  const last = await checkAvailability(date, '21:00', 5);
+  assert.equal(last.available, true);
+  assert.equal(last.remainingCapacity, 5);
 });

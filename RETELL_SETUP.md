@@ -159,12 +159,12 @@ confirmed all details and the deposit. Returns the confirmation code."
   "properties": {
     "name":   { "type": "string", "description": "Guest full name" },
     "phone":  { "type": "string", "description": "Guest phone number" },
-    "email":  { "type": "string", "description": "Guest e-mail address for the confirmation" },
+    "email":  { "type": "string", "description": "Guest email address for confirmation (optional — omit if it could not be captured clearly)" },
     "date":   { "type": "string", "description": "Reservation date, YYYY-MM-DD" },
     "time":   { "type": "string", "description": "Seating time, HH:MM, 24-hour" },
     "guests": { "type": "integer", "description": "Party size" }
   },
-  "required": ["name", "phone", "email", "date", "time", "guests"]
+  "required": ["name", "phone", "date", "time", "guests"]
 }
 ```
 

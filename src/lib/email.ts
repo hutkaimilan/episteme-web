@@ -246,7 +246,7 @@ Időpont: ${details.time}
 Létszám: ${details.guests} fő
 
 Vendég: ${details.name}
-E-mail: ${details.email}
+E-mail: ${details.email || 'nincs megadva'}
 Telefon: ${details.phone}
 
 Előleg: ${RESTAURANT.depositEur}
@@ -276,7 +276,7 @@ Időpont: ${details.time}
 Létszám: ${details.guests} fő
 
 Vendég: ${details.name}
-E-mail: ${details.email}
+E-mail: ${details.email || 'nincs megadva'}
 Telefon: ${details.phone}
 
 Lemondás időpontja: ${formatTimestamp(details.cancelledAt)}
