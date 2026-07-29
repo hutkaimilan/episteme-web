@@ -2,6 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeEmail,
+  renderAdminBookingEmail,
   renderCancellationEmail,
   renderConfirmationEmail,
   notifyBookingConfirmed,
@@ -161,11 +162,11 @@ test('a successful booking automatically e-mails the guest the full confirmation
   assert.equal(result.success, true);
   await tick();
 
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2, 'guest confirmation + [ADMIN] copy');
   // ONE shared EmailJS template; the letter itself is composed in our code
   // and handed over as exactly the four generic template variables.
-  assert.equal(sent[0].templateId, 'template_shared');
-  const p = sent[0].params;
+  assert.ok(sent.every((x) => x.templateId === 'template_shared'));
+  const p = sent.find((x) => x.params.to_email === 'anna@example.hu')!.params;
   assert.deepEqual(Object.keys(p).sort(), ['message', 'subject', 'to_email', 'to_name']);
   assert.equal(p.to_email, 'anna@example.hu');
   assert.equal(p.to_name, 'Kovács Anna');
@@ -221,8 +222,11 @@ test('a failed e-mail NEVER fails the booking (delivery is best-effort)', async 
 test('notifyBookingConfirmed resolves false instead of throwing when the address is unusable', async () => {
   const { sent, transport } = captureTransport();
   __setEmailTransportForTests(transport);
-  assert.equal(await notifyBookingConfirmed({ ...details, email: 'not-an-address' }), false);
-  assert.equal(sent.length, 0);
+  const outcome = await notifyBookingConfirmed({ ...details, email: 'not-an-address' });
+  assert.equal(outcome.guest, false, 'the guest cannot be reached');
+  assert.equal(outcome.restaurant, true, 'the restaurant is still told about the booking');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].params.to_email, RESTAURANT.adminEmail);
 });
 
 // ---------------------------------------------------------------------------
@@ -363,7 +367,7 @@ test('without EmailJS credentials the booking still succeeds and nothing is sent
   const result = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(2), '21:00', 4);
   await tick();
   assert.equal(result.success, true);
-  assert.equal(await notifyBookingConfirmed(details), false);
+  assert.deepEqual(await notifyBookingConfirmed(details), { guest: false, restaurant: false });
 });
 
 test('isEmailConfigured requires every credential, not just some', () => {
@@ -445,8 +449,11 @@ test('a dirty but salvageable e-mail books normally and the confirmation still a
 
   assert.equal(turn.toolCalls.length, 1, 'the flow did NOT stall on the messy address');
   assert.equal(turn.toolCalls[0].result.success, true);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].params.to_email, 'anna@example.hu', 'normalised before sending');
+  assert.equal(sent.length, 2, 'guest confirmation + [ADMIN] copy');
+  assert.ok(
+    sent.some((x) => x.params.to_email === 'anna@example.hu'),
+    'the guest address was normalised before sending',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -469,8 +476,11 @@ test('the confirmation is already sent when bookTable resolves (no pending promi
   );
 
   assert.equal(result.success, true);
-  assert.equal(sent.length, 1, 'the mail must NOT still be in flight after bookTable returns');
-  assert.equal(sent[0].params.to_email, 'anna@example.hu');
+  assert.equal(sent.length, 2, 'neither mail may still be in flight after bookTable returns');
+  assert.deepEqual(
+    sent.map((x) => x.params.to_email).sort(),
+    ['anna@example.hu', RESTAURANT.adminEmail].sort(),
+  );
 });
 
 test('both cancellation notices are already sent when cancelBooking resolves', async () => {
@@ -487,17 +497,77 @@ test('both cancellation notices are already sent when cancelBooking resolves', a
 });
 
 test('a hanging EmailJS still lets the booking answer, and is logged as an error', async () => {
-  let rejectSend: ((e: Error) => void) | null = null;
-  __setEmailTransportForTests(() => new Promise((_, reject) => { rejectSend = reject; }));
+  // Both sends (guest + admin) hang, so BOTH must be released — that is what
+  // AbortSignal.timeout does for real inside emailjsTransport.
+  const rejecters: Array<(e: Error) => void> = [];
+  __setEmailTransportForTests(() => new Promise((_, reject) => { rejecters.push(reject); }));
 
   const booking = bookTable(
     'Kovács Anna', '+36301234567', 'anna@example.hu', daysFromToday(8), '21:00', 4,
   );
-  // Stand in for the real AbortSignal.timeout inside emailjsTransport.
   await new Promise((r) => setImmediate(r));
-  rejectSend!(new Error('The operation was aborted due to timeout'));
+  assert.equal(rejecters.length, 2, 'both letters were attempted');
+  for (const reject of rejecters) reject(new Error('The operation was aborted due to timeout'));
 
   const result = await booking;
   assert.equal(result.success, true, 'a dead mail transport must never fail a real reservation');
   assert.match(String(result.confirmationCode), /^EP-\d{4}$/);
+});
+
+// ---------------------------------------------------------------------------
+// The restaurant's [ADMIN] copy of a NEW booking — the counterpart to the
+// cancellation copy, and the mirror of that two-sided pattern.
+// ---------------------------------------------------------------------------
+test('renderAdminBookingEmail is an operations letter, not the guest letter forwarded', () => {
+  const { subject, message } = renderAdminBookingEmail(details);
+
+  assert.equal(subject, '[ADMIN] Új foglalás - EP-1234');
+  assert.doesNotMatch(message, /Kedves/, 'staff are not greeted as the guest');
+  assert.match(message, /^Új foglalás érkezett\./);
+  assert.match(message, /Foglalási kód: EP-1234/);
+  assert.match(message, /Dátum: 2026-07-30/);
+  assert.match(message, /Időpont: 21:00/);
+  assert.match(message, /Létszám: 36 fő/);
+  // The contact block is the whole point: staff must be able to reach them.
+  assert.match(message, /Vendég: Kovács Anna/);
+  assert.match(message, /E-mail: anna@example\.hu/);
+  assert.match(message, /Telefon: \+36301234567/);
+  assert.match(message, /Előleg: 275,59 €/);
+});
+
+test('a successful booking notifies BOTH the guest and the restaurant', async () => {
+  const { sent, transport } = captureTransport();
+  __setEmailTransportForTests(transport);
+  const date = daysFromToday(9);
+
+  const result = await bookTable('Kovács Anna', '+36301234567', 'anna@example.hu', date, '21:00', 12);
+  assert.equal(result.success, true);
+
+  assert.equal(sent.length, 2);
+  assert.ok(sent.every((s) => s.templateId === 'template_shared'), 'one shared template');
+  assert.deepEqual(
+    sent.map((s) => s.params.to_email).sort(),
+    ['anna@example.hu', RESTAURANT.adminEmail].sort(),
+  );
+
+  const guest = sent.find((s) => s.params.to_email === 'anna@example.hu')!;
+  assert.equal(guest.params.subject, 'Foglalás visszaigazolva - EPISTEME');
+  assert.match(guest.params.message, /^Kedves Kovács Anna!/);
+  assert.doesNotMatch(guest.params.message, /Telefon:/, 'the guest is not sent their own dossier');
+
+  const admin = sent.find((s) => s.params.to_email === RESTAURANT.adminEmail)!;
+  assert.equal(admin.params.subject, `[ADMIN] Új foglalás - ${result.confirmationCode}`);
+  assert.equal(admin.params.to_name, 'EPISTEME');
+  assert.match(admin.params.message, /Vendég: Kovács Anna/);
+  assert.match(admin.params.message, /Telefon: \+36301234567/);
+  assert.match(admin.params.message, new RegExp(`Dátum: ${date}`));
+});
+
+test('the admin default is the restaurant address unless RESTAURANT_ADMIN_EMAIL overrides it', () => {
+  // The env var is read at module load, so this asserts the DEFAULT that
+  // production falls back to when the variable is not set on Vercel.
+  assert.equal(
+    RESTAURANT.adminEmail,
+    process.env.RESTAURANT_ADMIN_EMAIL ?? 'epistemebudapest@gmail.com',
+  );
 });

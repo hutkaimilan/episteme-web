@@ -229,6 +229,35 @@ ${RESTAURANT.name}`,
 }
 
 /**
+ * The restaurant's own copy of a NEW booking — the counterpart to
+ * renderAdminCancellationEmail, and a different letter from the guest's
+ * confirmation for the same reasons: staff are not greeted as the guest,
+ * they need the contact details to reach the party, and the subject leads
+ * with [ADMIN] plus the code so the operations inbox sorts cleanly.
+ */
+export function renderAdminBookingEmail(details: BookingEmailDetails): RenderedEmail {
+  return {
+    subject: `[ADMIN] Új foglalás - ${details.confirmationCode}`,
+    message: `Új foglalás érkezett.
+
+Foglalási kód: ${details.confirmationCode}
+Dátum: ${details.date}
+Időpont: ${details.time}
+Létszám: ${details.guests} fő
+
+Vendég: ${details.name}
+E-mail: ${details.email}
+Telefon: ${details.phone}
+
+Előleg: ${RESTAURANT.depositEur}
+
+A helyek levonásra kerültek az adott este szabad kapacitásából.
+
+${RESTAURANT.name}`,
+  };
+}
+
+/**
  * The restaurant's own copy of a cancellation. Deliberately a DIFFERENT
  * letter from the guest's, not the same text forwarded: it is addressed to
  * nobody (no "Kedves …!" salutation — the reader is staff, not the guest),
@@ -298,15 +327,38 @@ async function dispatch(
   }
 }
 
-/** Booking confirmation to the guest. Resolves false (never throws) when
- * unconfigured or undeliverable — the reservation itself already succeeded. */
-export async function notifyBookingConfirmed(details: BookingEmailDetails): Promise<boolean> {
-  const address = normalizeEmail(details.email);
-  if (!address) {
+/**
+ * A new booking notifies BOTH parties, exactly like a cancellation does: the
+ * guest gets the courteous confirmation, the restaurant gets the [ADMIN]
+ * operations copy. The sends are independent — the restaurant still learns
+ * about the reservation even if the guest's address is unusable or bounces,
+ * which is the more important of the two to never lose, since the seats are
+ * already committed either way.
+ *
+ * Never throws: resolves a per-recipient outcome instead, because the
+ * reservation itself has already succeeded by the time this runs.
+ */
+export async function notifyBookingConfirmed(
+  details: BookingEmailDetails,
+): Promise<{ guest: boolean; restaurant: boolean }> {
+  const guestAddress = normalizeEmail(details.email);
+
+  const [guest, restaurant] = await Promise.all([
+    guestAddress
+      ? dispatch(renderConfirmationEmail(details), guestAddress, details.name, 'booking confirmation')
+      : Promise.resolve(false),
+    dispatch(
+      renderAdminBookingEmail(details),
+      RESTAURANT.adminEmail,
+      RESTAURANT.name,
+      'booking notice (restaurant)',
+    ),
+  ]);
+
+  if (!guestAddress) {
     console.error('[EMAIL_ERROR] booking confirmation skipped: no usable guest address for', details.confirmationCode);
-    return false;
   }
-  return dispatch(renderConfirmationEmail(details), address, details.name, 'booking confirmation');
+  return { guest, restaurant };
 }
 
 /**
