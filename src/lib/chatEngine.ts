@@ -362,9 +362,84 @@ const FALLBACK: Record<'hu' | 'en' | 'es', string> = {
   es: 'Le ruego me disculpe: nuestro sistema de reservas no está disponible por un instante. Inténtelo de nuevo en unos momentos; si es urgente, nuestro equipo le atenderá con mucho gusto en epistemebudapest@gmail.com.',
 };
 
-export function fallbackMessage(history: ChatMessage[]): string {
+/**
+ * A reservation this turn actually COMMITTED, if any: a book_table that came
+ * back success:true with a real code. Only book_table qualifies —
+ * check_availability changes nothing, so a failure around it leaves no
+ * transaction to reassure anyone about.
+ */
+function committedBooking(
+  toolCalls: ToolEvent[],
+): { date: string; time: string; guests: number; code: string; emailSent: boolean } | null {
+  for (const call of toolCalls) {
+    if (call.name !== 'book_table' || call.result?.success !== true) continue;
+    const code = call.result.confirmationCode;
+    if (typeof code !== 'string') continue;
+    return {
+      date: String(call.input.date ?? ''),
+      time: String(call.input.time ?? ''),
+      guests: Number(call.input.guests ?? 0),
+      code,
+      emailSent: call.result.emailSent === true,
+    };
+  }
+  return null;
+}
+
+/**
+ * The fallback for a model failure that struck AFTER the table was already
+ * booked. Reported live: bookTable committed EP-6432 and the confirmation
+ * mail went out, then Groq answered 429 while merely WORDING the reply — so
+ * the guest was told the connection had dropped while their completed
+ * reservation sat in the ledger right below. A false alarm after a real
+ * success is worse than no message at all: it frightens the guest and
+ * invites them to book the same table twice.
+ *
+ * Every value here comes from the tool result the server already holds, so
+ * composing it needs no model call — which is the whole point, since the
+ * model is exactly what just failed.
+ */
+function bookingCommittedFallback(
+  lang: 'hu' | 'en' | 'es',
+  booking: { date: string; time: string; guests: number; code: string; emailSent: boolean },
+): string {
+  const { date, time, guests, code, emailSent } = booking;
+  if (lang === 'en') {
+    return `My apologies — our connection to the reservation system dropped for a moment while wording this reply. Your booking itself went through: ${date}, ${time}, ${guests} guests, confirmation code ${code}. ${
+      emailSent
+        ? 'Please also check your inbox, where we have sent the confirmation. If no e-mail arrives, do contact us at epistemebudapest@gmail.com.'
+        : 'Please keep this code — we could not send a confirmation e-mail. If you would like one, contact us at epistemebudapest@gmail.com.'
+    }`;
+  }
+  if (lang === 'es') {
+    return `Le ruego me disculpe: nuestra conexión con el sistema de reservas se interrumpió un instante mientras redactábamos esta respuesta. Su reserva sí se ha realizado: ${date}, ${time}, ${guests} comensales, código de confirmación ${code}. ${
+      emailSent
+        ? 'Revise también su correo, donde le hemos enviado la confirmación. Si no le llega, escríbanos a epistemebudapest@gmail.com.'
+        : 'Conserve este código: no hemos podido enviarle un correo de confirmación. Si lo desea, escríbanos a epistemebudapest@gmail.com.'
+    }`;
+  }
+  return `Elnézését kérem, egy pillanatra megszakadt a kapcsolatunk a foglalási rendszerünkkel a válasz megfogalmazása közben. Foglalása sikeresen megtörtént: ${date}, ${time}, ${guests} fő, kódja: ${code}. ${
+    emailSent
+      ? 'Kérjük, nézze meg az email fiókját is, ahova a visszaigazolást küldtük. Ha nem kapott email értesítést, kérjük, vegye fel a kapcsolatot ügyfélszolgálatunkkal az epistemebudapest@gmail.com címen.'
+      : 'Kérjük, jegyezze fel ezt a kódot — email visszaigazolást nem tudtunk küldeni. Ha szeretne, kérjük, vegye fel a kapcsolatot ügyfélszolgálatunkkal az epistemebudapest@gmail.com címen.'
+  }`;
+}
+
+/**
+ * The guest-facing text for a turn the engine could not complete.
+ *
+ * `toolCalls` is what makes it honest: when this turn already committed a
+ * reservation, the guest is told it SUCCEEDED (with the real details) rather
+ * than handed a connection-error notice that contradicts their own ledger.
+ * Without a committed booking — a failure before any tool ran, or around a
+ * check_availability, which changes nothing — the candid "please try again"
+ * text is still exactly right.
+ */
+export function fallbackMessage(history: ChatMessage[], toolCalls: ToolEvent[] = []): string {
   const lastUser = [...history].reverse().find((m) => m.role === 'user');
-  return FALLBACK[detectLang(lastUser?.content ?? '')];
+  const lang = detectLang(lastUser?.content ?? '');
+  const booking = committedBooking(toolCalls);
+  return booking ? bookingCommittedFallback(lang, booking) : FALLBACK[lang];
 }
 
 // ---------------------------------------------------------------------------
@@ -610,7 +685,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
       forceFieldReminder = null;
     } catch (err) {
       console.error('[GROQ_ERROR] model call threw; returning graceful fallback to guest:', err);
-      return { message: fallbackMessage(history), toolCalls, error: true };
+      return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
     }
 
     const action = asValidAction(extractJson(raw));
@@ -661,7 +736,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
             '[GROQ_ERROR] Model kept announcing an action without emitting the tool call after retries; graceful fallback; raw output:',
             trimmed.slice(0, 200),
           );
-          return { message: fallbackMessage(history), toolCalls, error: true };
+          return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
         }
         console.error('[GROQ_ERROR] Recovered plain-text say response via auto-wrap; raw output:', trimmed.slice(0, 300));
         return { message: trimmed, toolCalls };
@@ -696,7 +771,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         '[GROQ_ERROR] extractJson failed on model output / protocol violation (after retry, falling back); raw output:',
         raw.slice(0, 500),
       );
-      return { message: fallbackMessage(history), toolCalls, error: true };
+      return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
     }
     retriedProtocol = false;
 
@@ -723,7 +798,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
           '[GROQ_ERROR] Model kept announcing an action without emitting the tool call after retries; graceful fallback; message:',
           action.message.slice(0, 200),
         );
-        return { message: fallbackMessage(history), toolCalls, error: true };
+        return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
       }
 
       // Structural contradiction net: the tools said the party FITS, yet the
@@ -747,7 +822,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
           '[GROQ_ERROR] Model kept contradicting a positive availability result after retries; graceful fallback; message:',
           action.message.slice(0, 200),
         );
-        return { message: fallbackMessage(history), toolCalls, error: true };
+        return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
       }
 
       // FALSE-ACCEPTANCE net (the inverse of the one above, and the more
@@ -772,7 +847,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
           `[GROQ_ERROR] Model kept asserting availability without a matching check after retries (${unbacked}); graceful fallback; message:`,
           action.message.slice(0, 200),
         );
-        return { message: fallbackMessage(history), toolCalls, error: true };
+        return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
       }
 
       // OPENING-HOURS net: the reply names a clock time the restaurant is
@@ -807,7 +882,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
 
     if (toolIterations >= MAX_TOOL_ITERATIONS) {
       console.error(`[GROQ_ERROR] tool-iteration cap (${MAX_TOOL_ITERATIONS}) exceeded in one turn; returning graceful fallback`);
-      return { message: fallbackMessage(history), toolCalls, error: true };
+      return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
     }
     toolIterations++;
 
@@ -819,5 +894,5 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
   }
 
   console.error(`[GROQ_ERROR] model-call cap (${MAX_MODEL_CALLS}) exceeded in one turn; returning graceful fallback`);
-  return { message: fallbackMessage(history), toolCalls, error: true };
+  return { message: fallbackMessage(history, toolCalls), toolCalls, error: true };
 }

@@ -12,6 +12,7 @@ import {
   type ModelCaller,
 } from './chatEngine.ts';
 import { bookTable, checkAvailability, resetBookings } from './booking.ts';
+import { __setEmailTransportForTests } from './email.ts';
 
 function iso(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Budapest' });
@@ -860,4 +861,130 @@ test('false-acceptance net: stays off for replies that assert nothing about avai
 
   assert.equal(turn.message, question);
   assert.equal(model.calls.length, 1);
+});
+
+// ===========================================================================
+// PRODUCTION BUG — A FALSE ALARM AFTER A REAL SUCCESS.
+// Reported live: bookTable committed EP-6432 and the confirmation mail went
+// out, then Groq answered 429 while merely WORDING the reply. The guest was
+// told "megszakadt a kapcsolat" while their completed reservation sat in the
+// ledger right below — inviting them to book the same table twice.
+//
+// The distinction the fallback must draw: a model failure AFTER a committed
+// book_table is not a failed booking, and the server already holds every
+// detail needed to say so without asking the model anything.
+// ===========================================================================
+
+/** A model that plays its script, then throws — standing in for a 429. */
+function modelThenThrows(responses: string[]): ModelCaller & { calls: number } {
+  let calls = 0;
+  const fn = (async () => {
+    const idx = calls++;
+    if (idx >= responses.length) throw new Error('Groq HTTP 429: rate limit exceeded');
+    return responses[idx];
+  }) as ModelCaller & { calls: number };
+  Object.defineProperty(fn, 'calls', { get: () => calls });
+  return fn;
+}
+
+const bookScript = (date: string) => [
+  JSON.stringify({
+    type: 'tool',
+    name: 'book_table',
+    input: {
+      name: 'Kovács Anna', phone: '+36301234567', email: 'anna@example.hu',
+      date, time: '21:00', guests: 12,
+    },
+  }),
+];
+
+test('a 429 AFTER a committed booking confirms it — never "try again later"', async () => {
+  const date = daysFromToday(3);
+  __setEmailTransportForTests(async () => {}); // the confirmation really goes out
+  const turn = await runTurn([user('Megerősítem a foglalást.')], modelThenThrows(bookScript(date)));
+  __setEmailTransportForTests(null);
+
+  const code = String(turn.toolCalls[0]?.result?.confirmationCode);
+  assert.match(code, /^EP-\d{4}$/, 'precondition: the booking really committed');
+
+  // The false alarm must be gone…
+  assert.doesNotMatch(turn.message, /próbálja meg ismét|próbálja meg később/i);
+  assert.doesNotMatch(turn.message, /megszakadt a kapcsolat a foglalási rendszerünkkel\./);
+  // …and replaced by a confirmation carrying the REAL details.
+  assert.match(turn.message, /Foglalása sikeresen megtörtént/);
+  assert.match(turn.message, new RegExp(date));
+  assert.match(turn.message, /21:00/);
+  assert.match(turn.message, /12 fő/);
+  assert.match(turn.message, new RegExp(code));
+  assert.match(turn.message, /email fiókját/, 'the mail did go out, so point at it');
+});
+
+test('a 429 BEFORE any tool still gets the candid "please try again" text', async () => {
+  const turn = await runTurn([user('Asztalt szeretnék foglalni')], modelThenThrows([]));
+
+  assert.deepEqual(turn.toolCalls, [], 'nothing was committed');
+  assert.match(turn.message, /próbálja meg ismét/);
+  assert.doesNotMatch(turn.message, /sikeresen megtörtént/, 'never claim a booking that did not happen');
+});
+
+test('a 429 around check_availability is NOT a transaction — generic text', async () => {
+  const date = daysFromToday(3);
+  const turn = await runTurn(
+    [user('Van hely szombatra?')],
+    modelThenThrows([
+      JSON.stringify({
+        type: 'tool',
+        name: 'check_availability',
+        input: { date, time: '21:00', guests: 12 },
+      }),
+    ]),
+  );
+
+  assert.equal(turn.toolCalls[0].name, 'check_availability');
+  assert.match(turn.message, /próbálja meg ismét/);
+  assert.doesNotMatch(turn.message, /sikeresen megtörtént/);
+});
+
+test('a 429 after a REFUSED book_table never claims success', async () => {
+  const date = daysFromToday(3);
+  // Fill the evening first, so the scripted book_table genuinely fails.
+  assert.equal((await bookTable('Nagy Csoport', '+36301112233', 'x@example.hu', date, '20:00', 50)).success, true);
+
+  const turn = await runTurn([user('Megerősítem.')], modelThenThrows(bookScript(date)));
+
+  assert.equal(turn.toolCalls[0].result.success, false, 'precondition: the booking was refused');
+  assert.match(turn.message, /próbálja meg ismét/);
+  assert.doesNotMatch(turn.message, /sikeresen megtörtént/);
+});
+
+test('when no confirmation mail went out, the guest is told to note the code down', () => {
+  // This shape only arises on the VOICE path: the chat protocol still demands
+  // a usable address (see REQUIRED_FIELDS), so runTurn can never produce it.
+  // The fallback is exercised directly with the tool event bookTable emits.
+  const message = fallbackMessage(
+    [user('Megerősítem.')],
+    [{
+      name: 'book_table',
+      input: { name: 'Kovács Anna', phone: '+36301234567', date: '2026-08-05', time: '21:00', guests: 4 },
+      result: { success: true, confirmationCode: 'EP-6432', emailSent: false },
+    }],
+  );
+
+  assert.match(message, /Foglalása sikeresen megtörtént: 2026-08-05, 21:00, 4 fő, kódja: EP-6432/);
+  assert.match(message, /jegyezze fel ezt a kódot/);
+  assert.doesNotMatch(message, /nézze meg az email fiókját/, 'no mail was sent — do not point at the inbox');
+  assert.doesNotMatch(message, /próbálja meg ismét/);
+});
+
+test('the committed-booking fallback follows the guest into English and Spanish', async () => {
+  const date = daysFromToday(5);
+  __setEmailTransportForTests(async () => {});
+  const en = await runTurn([user('I would like to book a table, please')], modelThenThrows(bookScript(date)));
+  assert.match(en.message, /Your booking itself went through/);
+  assert.match(en.message, /12 guests/);
+
+  const es = await runTurn([user('Quiero reservar una mesa, por favor')], modelThenThrows(bookScript(date)));
+  assert.match(es.message, /Su reserva sí se ha realizado/);
+  assert.match(es.message, /12 comensales/);
+  __setEmailTransportForTests(null);
 });
