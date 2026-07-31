@@ -21,5 +21,5 @@ export const RESTAURANT = {
    * operations inbox nobody outside the restaurant ever sees. Overridable
    * without a code change so the operations address can move on its own.
    */
-  adminEmail: process.env.RESTAURANT_ADMIN_EMAIL ?? 'bizniszpappa@gmail.com',
+  adminEmail: process.env.RESTAURANT_ADMIN_EMAIL ?? 'epistemebudapest@gmail.com',
 } as const;

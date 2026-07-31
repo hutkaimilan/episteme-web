@@ -57,6 +57,13 @@ export type BookingResult = {
   success: boolean;
   confirmationCode?: string;
   reason?: string;
+  /**
+   * Whether the GUEST received a confirmation e-mail. False when no usable
+   * address was captured — a normal outcome on the voice path, never a
+   * failure. The caller uses it to decide whether the code must be read out
+   * loud instead. (The restaurant's [ADMIN] copy is sent either way.)
+   */
+  emailSent?: boolean;
 };
 
 export type CancelResult = {
@@ -300,14 +307,23 @@ export async function bookTable(
     audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_phone' });
     return { success: false, reason: 'invalid_phone: a valid phone number is required' };
   }
-  // Coerced, not merely checked: a messy but well-intentioned address
-  // ("  Anna@Example.COM ", "mailto:…") is repaired here rather than
-  // bouncing the guest back through another round of the conversation.
+  // The address is OPTIONAL, and coerced rather than merely checked: a messy
+  // but well-intentioned one ("  Anna@Example.COM ", "mailto:…") is repaired,
+  // while anything unusable becomes null and the reservation proceeds without
+  // a confirmation mail.
+  //
+  // It used to be required, and that cost a real booking. On the Retell voice
+  // path the address arrives through speech recognition, which mangles it —
+  // an actual transcript from a test call read "Utka Ilmilanélmény Kukads
+  // Cimentempont". Every other detail (date, time, party size, name, phone)
+  // came through perfectly, yet the whole reservation was thrown away on
+  // invalid_email. A table lost to a misheard e-mail is a far worse outcome
+  // than a booking whose confirmation is read out loud instead.
+  //
+  // Null (never the garbage string) is what gets stored, so a later
+  // cancellation does not try to mail it and the [ADMIN] letter shows no
+  // unreadable text.
   const guestEmail = normalizeEmail(email);
-  if (!guestEmail) {
-    audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_email' });
-    return { success: false, reason: 'invalid_email: a valid e-mail address is required for the confirmation' };
-  }
 
   // Everything that needs no storage is rejected before any seats are touched.
   const requestError = validateRequest(date, time, guests);
@@ -341,7 +357,7 @@ export async function bookTable(
     return { success: false, reason: capacityReason(remaining) };
   }
 
-  const code = await claimCode({ date, time, guests, name, phone, email: guestEmail });
+  const code = await claimCode({ date, time, guests, name, phone, email: guestEmail ?? '' });
   if (!code) {
     // Roll back the seats this call just took — they belong to nobody.
     await store.freeSeats(date, guests);
@@ -379,9 +395,22 @@ export async function bookTable(
   // ALREADY committed, and notifyBookingConfirmed never throws — it logs and
   // resolves false. So a mail failure still cannot turn a real reservation
   // into an error; it only costs the round-trip, which EMAIL_TIMEOUT_MS caps.
-  await notifyBookingConfirmed({ confirmationCode: code, name, email: guestEmail, phone, date, time, guests });
+  //
+  // Called even when the guest has no usable address: the GUEST send is what
+  // an unusable address skips, not the [ADMIN] copy. A booking taken over the
+  // phone is precisely the one nobody watched arrive in a chat transcript, so
+  // the restaurant's own notice matters MORE there, not less.
+  const notified = await notifyBookingConfirmed({
+    confirmationCode: code,
+    name,
+    email: guestEmail ?? '',
+    phone,
+    date,
+    time,
+    guests,
+  });
 
-  return { success: true, confirmationCode: code };
+  return { success: true, confirmationCode: code, emailSent: notified.guest };
 }
 
 /**

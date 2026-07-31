@@ -73,8 +73,11 @@ export async function POST(request: Request) {
   if (name === 'book_table') {
     // The address arrives from a speech transcript, so it is the dirtiest
     // input in the system ("anna kukac example pont hu", stray spaces,
-    // casing); bookTable normalises it and rejects only what is truly
-    // unusable.
+    // casing). It is also OPTIONAL here: the agent is instructed to omit the
+    // field entirely rather than pass through something it could not capture
+    // cleanly, so `args.email` is routinely absent. `String(undefined ?? '')`
+    // gives '', which bookTable treats as "no address" — a booking that
+    // succeeds with emailSent:false, never an error.
     const result = await bookTable(
       String(args.name ?? ''),
       String(args.phone ?? ''),
@@ -85,7 +88,16 @@ export async function POST(request: Request) {
     );
     console.log(
       '[RETELL_DEBUG] book_table',
-      JSON.stringify({ args: { ...args, phone: '[redacted]', email: '[redacted]' }, success: result.success, code: result.confirmationCode ?? null, reason: result.reason ?? null }),
+      JSON.stringify({
+        args: { ...args, phone: '[redacted]', email: '[redacted]' },
+        success: result.success,
+        code: result.confirmationCode ?? null,
+        // Whether the GUEST was mailed. false + success:true is the normal
+        // voice-path outcome when the address could not be transcribed, and
+        // is what to look for in the log when a guest reports no e-mail.
+        emailSent: result.emailSent ?? false,
+        reason: result.reason ?? null,
+      }),
     );
     return NextResponse.json(result);
   }
