@@ -166,6 +166,73 @@ test('callGroqApi: a successful first response never triggers the retry path', a
   assert.equal(callCount, 1);
 });
 
+test('callGroqApi: on output_parse_failed, retries once, then succeeds', async () => {
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    if (callCount === 1) {
+      return jsonResponse(400, {
+        error: {
+          message: 'Parsing failed. The model generated output that could not be parsed.',
+          type: 'invalid_request_error',
+          code: 'output_parse_failed',
+          failed_generation: 'Need to check availability for 2026-08-03 20:00 12 guests.',
+        },
+      });
+    }
+    return jsonResponse(200, { choices: [{ message: { content: '{"type":"say","message":"ok"}' } }] });
+  };
+
+  const text = await withMockFetch(mockFetch, () =>
+    callGroqApi({ url: 'http://mock/chat', apiKey: 'test-key', model: 'test-model', maxTokens: 100 }, 'system', [
+      { role: 'user', content: 'hi' },
+    ]),
+  );
+
+  assert.equal(text, '{"type":"say","message":"ok"}');
+  assert.equal(callCount, 2);
+});
+
+test('callGroqApi: output_parse_failed that recurs after the single retry still throws (no infinite/second retry)', async () => {
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    return jsonResponse(400, {
+      error: { message: 'Parsing failed.', type: 'invalid_request_error', code: 'output_parse_failed', failed_generation: 'still stalled' },
+    });
+  };
+
+  await assert.rejects(
+    () =>
+      withMockFetch(mockFetch, () =>
+        callGroqApi({ url: 'http://mock/chat', apiKey: 'test-key', model: 'test-model', maxTokens: 100 }, 'system', [
+          { role: 'user', content: 'hi' },
+        ]),
+      ),
+    /Groq API error 400/,
+  );
+  assert.equal(callCount, 2);
+});
+
+test('callGroqApi: a 400 that is NOT output_parse_failed is unaffected by the retry path', async () => {
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    return jsonResponse(400, { error: { message: 'model_decommissioned', code: 'model_decommissioned' } });
+  };
+
+  await assert.rejects(
+    () =>
+      withMockFetch(mockFetch, () =>
+        callGroqApi({ url: 'http://mock/chat', apiKey: 'test-key', model: 'test-model', maxTokens: 100 }, 'system', [
+          { role: 'user', content: 'hi' },
+        ]),
+      ),
+    /Groq API error 400/,
+  );
+  assert.equal(callCount, 1);
+});
+
 test('callGroqApi: the API key never leaks into thrown/logged text even inside an error body', async () => {
   const mockFetch: typeof fetch = async () =>
     jsonResponse(500, { error: 'secret-test-key-12345 leaked in error body' });

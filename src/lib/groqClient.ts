@@ -116,8 +116,34 @@ export async function callGroqApi(
 
   if (!res.ok) {
     const bodyText = await res.text().catch(() => '<unreadable body>');
-    console.error(`[GROQ_ERROR] Groq HTTP ${res.status} ${res.statusText}:`, redactKey(bodyText.slice(0, 2000), apiKey));
-    throw new Error(`Groq API error ${res.status}`);
+    const isOutputParseFailure = res.status === 400 && bodyText.includes('output_parse_failed');
+
+    if (!isOutputParseFailure) {
+      console.error(`[GROQ_ERROR] Groq HTTP ${res.status} ${res.statusText}:`, redactKey(bodyText.slice(0, 2000), apiKey));
+      throw new Error(`Groq API error ${res.status}`);
+    }
+
+    // gpt-oss occasionally stalls mid-reasoning and never emits a final
+    // answer for Groq to return; the model is stochastic, so a same-request
+    // retry usually succeeds. Exactly one retry, same as the 429 path above.
+    console.error('[GROQ_ERROR] Groq output_parse_failed (model stalled before the final answer); retrying once:', redactKey(bodyText.slice(0, 2000), apiKey));
+    try {
+      res = await doFetch();
+    } catch (err) {
+      console.error(
+        '[GROQ_ERROR] Groq retry fetch failed after output_parse_failed (network/DNS/TLS):',
+        redactKey(err instanceof Error ? `${err.message} | cause: ${String((err as Error & { cause?: unknown }).cause ?? 'n/a')}` : String(err), apiKey),
+      );
+      throw err;
+    }
+    if (!res.ok) {
+      const retryBodyText = await res.text().catch(() => '<unreadable body>');
+      console.error(
+        `[GROQ_ERROR] Groq HTTP ${res.status} ${res.statusText} (after output_parse_failed retry):`,
+        redactKey(retryBodyText.slice(0, 2000), apiKey),
+      );
+      throw new Error(`Groq API error ${res.status}`);
+    }
   }
 
   const rawBody = await res.text();
