@@ -23,12 +23,16 @@ import { callGroqApi } from '@/lib/groqClient';
 // (Vercel clamps this to whatever the plan allows).
 export const maxDuration = 60;
 
-// Model is env-driven so a rate-limit or quality change is a Vercel env edit
-// + redeploy, never a code change. Default: llama-3.1-8b-instant, whose free
-// daily allowance is far larger than llama-3.3-70b-versatile's (~1000 req /
-// ~100K tokens per rolling 24h), which production exhausted. Set GROQ_MODEL
-// to llama-3.3-70b-versatile to switch back.
-const MODEL = process.env.GROQ_MODEL ?? 'llama-3.1-8b-instant';
+// Hardcoded (not env-driven) as of 2026-08-03: today's incidents (gpt-oss-20b
+// reasoning-model output_parse_failed stalls, then TPM exhaustion from the
+// resulting retries) trace back to the Vercel GROQ_MODEL env var being set to
+// openai/gpt-oss-20b. Overriding it here rather than depending on that env var
+// being fixed in the dashboard, since gpt-oss's reasoning-token overhead is a
+// poor fit for this single-shot strict-JSON tool-calling design regardless of
+// its TPM budget. llama-3.3-70b-versatile is not a reasoning model (no
+// output_parse_failed risk) and has a materially larger free-tier TPM window.
+// Valid until Groq's Aug 16, 2026 deprecation shutdown -- re-evaluate before then.
+const MODEL = 'llama-3.3-70b-versatile';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
