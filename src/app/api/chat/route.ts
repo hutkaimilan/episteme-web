@@ -32,7 +32,7 @@ const MODEL = process.env.GROQ_MODEL ?? 'llama-3.1-8b-instant';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
-const MAX_TOKENS = 2000;
+const MAX_TOKENS = 800;
 
 // Full history is resent to the model on every call (needed — earlier
 // attempts at summarising/truncating it caused the model to lose the guest's
