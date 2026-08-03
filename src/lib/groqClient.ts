@@ -83,7 +83,9 @@ export async function callGroqApi(
       }),
     });
 
+  const MAX_429_ATTEMPTS = 3;
   let res: Response;
+  let attempt = 1;
   try {
     res = await doFetch();
   } catch (err) {
@@ -94,14 +96,18 @@ export async function callGroqApi(
     throw err;
   }
 
-  if (res.status === 429) {
+  while (res.status === 429 && attempt < MAX_429_ATTEMPTS) {
     const bodyText = await res.text().catch(() => '');
     const delayMs = parseRetryDelayMs(res.headers.get('retry-after'), bodyText);
     if (delayMs === null) {
       console.error('[GROQ_ERROR] Groq 429 rate limit with no parseable wait time; not retrying:', redactKey(bodyText.slice(0, 500), apiKey));
       throw new Error('Groq API error 429');
     }
-    console.error(`[GROQ_ERROR] Groq 429 rate limit; retrying once after ${delayMs}ms:`, redactKey(bodyText.slice(0, 500), apiKey));
+    attempt++;
+    console.error(
+      `[GROQ_ERROR] Groq 429 rate limit; retrying (attempt ${attempt}/${MAX_429_ATTEMPTS}) after ${delayMs}ms:`,
+      redactKey(bodyText.slice(0, 500), apiKey),
+    );
     await sleepFn(delayMs);
     try {
       res = await doFetch();
@@ -112,6 +118,11 @@ export async function callGroqApi(
       );
       throw err;
     }
+  }
+  if (res.status === 429) {
+    const bodyText = await res.text().catch(() => '<unreadable body>');
+    console.error(`[GROQ_ERROR] Groq 429 rate limit persisted after ${MAX_429_ATTEMPTS} attempts, giving up:`, redactKey(bodyText.slice(0, 500), apiKey));
+    throw new Error('Groq API error 429');
   }
 
   if (!res.ok) {

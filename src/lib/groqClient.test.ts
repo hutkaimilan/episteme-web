@@ -111,7 +111,7 @@ test('callGroqApi: a 429 with no parseable wait time throws immediately without 
   assert.equal(callCount, 1);
 });
 
-test('callGroqApi: a 429 that stays 429 after the single retry still throws (no infinite/second retry)', async () => {
+test('callGroqApi: a 429 that stays 429 through all bounded retries still throws (no unbounded retry)', async () => {
   let callCount = 0;
   const mockFetch: typeof fetch = async () => {
     callCount++;
@@ -127,7 +127,27 @@ test('callGroqApi: a 429 that stays 429 after the single retry still throws (no 
       ),
     /Groq API error 429/,
   );
-  assert.equal(callCount, 2);
+  assert.equal(callCount, 3);
+});
+
+test('callGroqApi: on 429, retries a second time if the first retry is also 429, then succeeds', async () => {
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    if (callCount < 3) {
+      return jsonResponse(429, { error: { message: 'Rate limit reached. Please try again in 0.02s.' } });
+    }
+    return jsonResponse(200, { choices: [{ message: { content: '{"type":"say","message":"ok"}' } }] });
+  };
+
+  const text = await withMockFetch(mockFetch, () =>
+    callGroqApi({ url: 'http://mock/chat', apiKey: 'test-key', model: 'test-model', maxTokens: 100 }, 'system', [
+      { role: 'user', content: 'hi' },
+    ]),
+  );
+
+  assert.equal(text, '{"type":"say","message":"ok"}');
+  assert.equal(callCount, 3);
 });
 
 test('callGroqApi: a non-429 error status is unaffected by the retry path', async () => {
