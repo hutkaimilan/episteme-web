@@ -14,6 +14,7 @@ export type GroqRequestConfig = {
   model: string;
   maxTokens: number;
   temperature?: number;
+  reasoningEffort?: 'low' | 'medium' | 'high';
 };
 
 /** Bounds a retry wait to something a guest can tolerate, however long the
@@ -64,7 +65,7 @@ export async function callGroqApi(
   apiMessages: ChatMessage[],
   sleepFn: (ms: number) => Promise<void> = sleep,
 ): Promise<string> {
-  const { url, apiKey, model, maxTokens, temperature = 0.7 } = config;
+  const { url, apiKey, model, maxTokens, temperature = 0.7, reasoningEffort } = config;
 
   const doFetch = () =>
     fetch(url, {
@@ -78,6 +79,7 @@ export async function callGroqApi(
         messages: [{ role: 'system', content: systemContent }, ...apiMessages.map((m) => ({ role: m.role, content: m.content }))],
         max_tokens: maxTokens,
         temperature,
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       }),
     });
 

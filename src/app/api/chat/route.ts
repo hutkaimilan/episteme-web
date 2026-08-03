@@ -32,7 +32,7 @@ const MODEL = process.env.GROQ_MODEL ?? 'llama-3.1-8b-instant';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
-const MAX_TOKENS = 1000;
+const MAX_TOKENS = 2000;
 
 // Full history is resent to the model on every call (needed — earlier
 // attempts at summarising/truncating it caused the model to lose the guest's
@@ -164,7 +164,11 @@ async function callGroq(messages: ChatMessage[], systemSuffix: string): Promise<
       ? [{ role: 'user', content: '[RENDSZER] A vendég megnyitotta a foglalási felületet.' }, ...messages]
       : messages;
 
-  return callGroqApi({ url: GROQ_URL, apiKey, model: MODEL, maxTokens: MAX_TOKENS }, systemPrompt() + systemSuffix, apiMessages);
+  return callGroqApi(
+    { url: GROQ_URL, apiKey, model: MODEL, maxTokens: MAX_TOKENS, reasoningEffort: MODEL.includes('gpt-oss') ? 'low' : undefined },
+    systemPrompt() + systemSuffix,
+    apiMessages,
+  );
 }
 
 function sanitizeHistory(body: unknown): ChatMessage[] | null {
