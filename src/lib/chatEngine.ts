@@ -1,5 +1,5 @@
 import { extractJson, hasSuspiciousToolSyntax, parseWholeJson } from './extractJson';
-import { bookTable, cancelBooking, checkAvailability, modifyBooking } from './booking';
+import { bookTable, cancelBooking, checkAvailability, linkBookingEmail, modifyBooking } from './booking';
 import { normalizeEmail } from './email';
 
 /**
@@ -23,7 +23,7 @@ import { normalizeEmail } from './email';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-type ToolName = 'check_availability' | 'book_table' | 'cancel_booking' | 'modify_booking';
+type ToolName = 'check_availability' | 'book_table' | 'cancel_booking' | 'modify_booking' | 'link_email';
 
 export type ToolEvent = {
   name: ToolName;
@@ -543,6 +543,12 @@ function asValidAction(parsed: unknown): SayAction | ToolAction | null {
     if (obj.name === 'modify_booking' && confirmationCode !== undefined && guests !== null) {
       return { type: 'tool', name: 'modify_booking', input: { ...input, confirmationCode, guests } };
     }
+    if (obj.name === 'link_email' && confirmationCode !== undefined) {
+      const email = normalizeEmail(input.email) ?? undefined;
+      if (email !== undefined) {
+        return { type: 'tool', name: 'link_email', input: { ...input, confirmationCode, email } };
+      }
+    }
   }
   return null;
 }
@@ -554,6 +560,7 @@ const REQUIRED_FIELDS: Record<ToolName, readonly string[]> = {
   book_table: ['name', 'phone', 'email', 'date', 'time', 'guests'],
   cancel_booking: ['confirmationCode'],
   modify_booking: ['confirmationCode', 'guests'],
+  link_email: ['confirmationCode', 'email'],
 };
 const KNOWN_TOOL_NAMES = new Set<string>(Object.keys(REQUIRED_FIELDS));
 
@@ -616,6 +623,8 @@ async function executeTool(action: ToolAction): Promise<Record<string, unknown>>
     result = (await cancelBooking(input.confirmationCode as string)) as unknown as Record<string, unknown>;
   } else if (action.name === 'modify_booking') {
     result = (await modifyBooking(input.confirmationCode as string, input.guests as number)) as unknown as Record<string, unknown>;
+  } else if (action.name === 'link_email') {
+    result = (await linkBookingEmail(input.confirmationCode as string, input.email as string)) as unknown as Record<string, unknown>;
   } else {
     result = (await bookTable(
       input.name as string,
@@ -716,7 +725,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
         !trimmed.includes('}') &&
         !hasSuspiciousToolSyntax(raw) &&
         !/EP[\s_-]*\d/i.test(trimmed) &&
-        !/check_availability|book_table|cancel_booking|modify_booking/i.test(trimmed);
+        !/check_availability|book_table|cancel_booking|modify_booking|link_email/i.test(trimmed);
 
       if (cleanProse) {
         // Announced intent ("let me check…") must NOT be auto-wrapped — that

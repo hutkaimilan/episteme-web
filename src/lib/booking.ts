@@ -87,6 +87,21 @@ export type ModifyResult = {
   remainingCapacity?: number;
 };
 
+export type LinkEmailResult = {
+  success: boolean;
+  reason?: string;
+  confirmationCode?: string;
+  date?: string;
+  time?: string;
+  guests?: number;
+  /** Whether the confirmation letter actually went out to the newly-attached
+   * address (mirrors book_table's emailSent semantics). False here IS a
+   * real failure worth surfacing, unlike at booking time — the guest
+   * explicitly asked to attach an address, so a silent no-op would be
+   * confusing rather than a normal voice-path outcome. */
+  emailSent?: boolean;
+};
+
 const CAPACITY = RESTAURANT.capacity;
 const CONTACT_EMAIL = RESTAURANT.contactEmail;
 
@@ -525,6 +540,48 @@ export async function modifyBooking(
   const remaining = remainingFrom(resized.others + newGuestCount);
   audit({ op: 'modify_booking', code, date: record.date, fromGuests, toGuests: newGuestCount, decision: 'modified', remaining, backend: store.backend });
   return { success: true, confirmationCode: code, date: record.date, guests: newGuestCount, remainingCapacity: remaining };
+}
+
+/**
+ * Attaches (or replaces) the e-mail address on an existing reservation and
+ * immediately sends the confirmation letter to it. Exists for the case a
+ * voice booking never captured a reliable address — speech recognition on
+ * an arbitrary e-mail is inherently lossy, so rather than keep re-asking the
+ * guest to dictate it, they can instead TYPE it here (in the web chat), a
+ * channel with no misrecognition risk. Does not touch capacity or the
+ * reservation's date/time/guests at all — purely an e-mail attach + resend.
+ */
+export async function linkBookingEmail(confirmationCode: string, email: string): Promise<LinkEmailResult> {
+  const code = normalizeCode(confirmationCode);
+  const record = await store.loadRecord(code);
+  if (!record) {
+    audit({ op: 'link_email', code, decision: 'rejected', reason: 'unknown_code' });
+    return { success: false, reason: `unknown_code: no reservation found for that confirmation code — please verify it or contact ${CONTACT_EMAIL}` };
+  }
+
+  const normalized = normalizeEmail(email);
+  if (!normalized) {
+    audit({ op: 'link_email', code, decision: 'rejected', reason: 'invalid_email' });
+    return { success: false, reason: 'invalid_email: please provide a valid e-mail address' };
+  }
+
+  await store.saveRecord(code, { ...record, email: normalized });
+
+  // Reuses the same confirmation letter + [ADMIN] notice as a fresh booking
+  // (notifyBookingConfirmed never throws), so the restaurant also sees that
+  // an address was attached after the fact.
+  const { guest: emailSent } = await notifyBookingConfirmed({
+    confirmationCode: code,
+    name: record.name,
+    email: normalized,
+    phone: record.phone,
+    date: record.date,
+    time: record.time,
+    guests: record.guests,
+  });
+
+  audit({ op: 'link_email', code, date: record.date, decision: 'linked', emailSent, backend: store.backend });
+  return { success: true, confirmationCode: code, date: record.date, time: record.time, guests: record.guests, emailSent };
 }
 
 /**

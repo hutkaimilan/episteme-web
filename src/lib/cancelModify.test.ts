@@ -1,12 +1,14 @@
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bookTable,
   checkAvailability,
   cancelBooking,
   modifyBooking,
+  linkBookingEmail,
   resetBookings,
 } from './booking.ts';
+import { __setEmailTransportForTests } from './email.ts';
 
 const AT = '21:00';
 function iso(d: Date): string {
@@ -34,6 +36,10 @@ async function withAuditCapture<T>(
 
 beforeEach(async () => {
   await resetBookings();
+});
+
+afterEach(() => {
+  __setEmailTransportForTests(null);
 });
 
 // ===========================================================================
@@ -176,4 +182,74 @@ test('audit: cancel and modify decisions are logged', async () => {
   assert.ok(cancel, 'a cancel_booking audit line exists');
   assert.equal(cancel!.guests, 8); // record reflected the modification before cancel
   assert.equal(cancel!.date, date);
+});
+
+// ===========================================================================
+// LINK EMAIL — the web self-service path for a phone booking whose e-mail
+// was never captured reliably (voice dictation is lossy; typing here isn't).
+// ===========================================================================
+test('link_email: attaches the address and sends the confirmation to it', async () => {
+  const date = daysFromToday(10);
+  const booked = await bookTable('Hutkai Milán', '+36301234567', '', date, '21:00', 4);
+  assert.equal(booked.success, true);
+  assert.equal(booked.emailSent, false); // no address captured on the call
+
+  const sentTo: string[] = [];
+  __setEmailTransportForTests(async (_templateId, params) => {
+    sentTo.push(params.to_email);
+  });
+
+  const r = await linkBookingEmail(booked.confirmationCode!, 'laszlo.veyland@example.com');
+  assert.equal(r.success, true);
+  assert.equal(r.confirmationCode, booked.confirmationCode);
+  assert.equal(r.date, date);
+  assert.equal(r.guests, 4);
+  assert.equal(r.emailSent, true);
+  // Both letters go out, exactly as a fresh booking does: the guest's
+  // confirmation to the newly-attached address, plus the [ADMIN] copy.
+  assert.ok(sentTo.includes('laszlo.veyland@example.com'), `guest was mailed; got ${JSON.stringify(sentTo)}`);
+});
+
+test('link_email: does not touch capacity, date, time or guests', async () => {
+  const date = daysFromToday(10);
+  const booked = await bookTable('Vendég', '+36301234567', '', date, '20:00', 10);
+  __setEmailTransportForTests(async () => {});
+  await linkBookingEmail(booked.confirmationCode!, 'vendeg@example.com');
+  // Still exactly 40 free (10 used), independent of the e-mail attach.
+  assert.equal((await checkAvailability(date, AT, 40)).available, true);
+  assert.equal((await checkAvailability(date, AT, 41)).available, false);
+});
+
+test('link_email: an unknown confirmation code is rejected', async () => {
+  const r = await linkBookingEmail('EP-0000', 'someone@example.com');
+  assert.equal(r.success, false);
+  assert.match(r.reason ?? '', /unknown_code/);
+});
+
+test('link_email: an unusable e-mail address is rejected, the record is left alone', async () => {
+  const date = daysFromToday(10);
+  const booked = await bookTable('Vendég', '+36301234567', '', date, '20:00', 6);
+  const r = await linkBookingEmail(booked.confirmationCode!, 'not an email');
+  assert.equal(r.success, false);
+  assert.match(r.reason ?? '', /invalid_email/);
+});
+
+test('link_email accepts loosely-typed confirmation codes', async () => {
+  const date = daysFromToday(10);
+  const booked = await bookTable('Vendég', '+36301234567', '', date, '20:00', 6);
+  __setEmailTransportForTests(async () => {});
+  const digits = booked.confirmationCode!.slice(3);
+  assert.equal((await linkBookingEmail(`ep ${digits}`, 'vendeg@example.com')).success, true);
+});
+
+test('audit: link_email decisions are logged', async () => {
+  const date = daysFromToday(10);
+  __setEmailTransportForTests(async () => {});
+  const { audits } = await withAuditCapture(async () => {
+    const b = await bookTable('Vendég', '+36301234567', '', date, '20:00', 4);
+    await linkBookingEmail(b.confirmationCode!, 'vendeg@example.com');
+  });
+  const linked = audits.find((a) => a.op === 'link_email' && a.decision === 'linked');
+  assert.ok(linked, 'a link_email audit line exists');
+  assert.equal(linked!.emailSent, true);
 });
