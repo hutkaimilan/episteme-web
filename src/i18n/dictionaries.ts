@@ -124,6 +124,7 @@ export type Dictionary = {
     addressLabel: string;
     hoursLabel: string;
     emailLabel: string;
+    phoneLabel: string;
     mapCta: string;
   };
   notFound: {
@@ -509,6 +510,7 @@ const hu: Dictionary = {
     addressLabel: 'Cím',
     hoursLabel: 'Nyitvatartás',
     emailLabel: 'E-mail',
+    phoneLabel: 'Telefon',
     mapCta: 'Térkép megnyitása',
   },
   notFound: {
@@ -896,6 +898,7 @@ const en: Dictionary = {
     addressLabel: 'Address',
     hoursLabel: 'Opening hours',
     emailLabel: 'E-mail',
+    phoneLabel: 'Phone',
     mapCta: 'Open map',
   },
   notFound: {
@@ -1283,6 +1286,7 @@ const es: Dictionary = {
     addressLabel: 'Dirección',
     hoursLabel: 'Horario',
     emailLabel: 'Correo electrónico',
+    phoneLabel: 'Teléfono',
     mapCta: 'Abrir mapa',
   },
   notFound: {

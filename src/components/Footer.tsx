@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useI18n } from '@/i18n/LanguageProvider';
+import { RESTAURANT } from '@/lib/restaurant';
 
 /* lucide-react no longer ships brand icons, so Instagram is drawn inline */
 function InstagramIcon({ size = 16 }: { size?: number }) {
@@ -60,10 +61,17 @@ export default function Footer() {
             {t('footer.contactLabel')}
           </p>
           <a
-            href="mailto:epistemebudapest@gmail.com"
+            href={`mailto:${RESTAURANT.contactEmail}`}
             className="text-ivory-muted transition-colors duration-500 hover:text-gold-bright"
           >
-            epistemebudapest@gmail.com
+            {RESTAURANT.contactEmail}
+          </a>
+          <br />
+          <a
+            href={`tel:${RESTAURANT.phoneE164}`}
+            className="text-ivory-muted transition-colors duration-500 hover:text-gold-bright"
+          >
+            {RESTAURANT.phoneDisplay}
           </a>
           <div className="mt-6">
             <a

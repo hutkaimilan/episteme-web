@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { MapPin } from 'lucide-react';
 import { useI18n } from '@/i18n/LanguageProvider';
 import { parseItalics } from '@/lib/utils';
+import { RESTAURANT } from '@/lib/restaurant';
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -63,7 +64,7 @@ export default function ContactSection() {
         {/* Slim typographic info row, hairline-divided like the wine highlights */}
         <motion.div
           variants={reveal}
-          className="mt-16 grid grid-cols-1 divide-y divide-line text-center sm:mt-20 sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+          className="mt-16 grid grid-cols-1 divide-y divide-line text-center sm:mt-20 sm:grid-cols-4 sm:divide-x sm:divide-y-0"
         >
           <div className="py-8 sm:px-8 sm:py-2">
             <h3 className="text-[0.6875rem] font-light uppercase tracking-eyebrow text-gold sm:text-xs">
@@ -85,14 +86,27 @@ export default function ContactSection() {
           </div>
           <div className="py-8 sm:px-8 sm:py-2">
             <h3 className="text-[0.6875rem] font-light uppercase tracking-eyebrow text-gold sm:text-xs">
+              {t('contact.phoneLabel')}
+            </h3>
+            <p className="mt-4 text-sm font-light leading-relaxed">
+              <a
+                href={`tel:${RESTAURANT.phoneE164}`}
+                className="text-ivory-muted transition-colors duration-500 hover:text-gold-bright"
+              >
+                {RESTAURANT.phoneDisplay}
+              </a>
+            </p>
+          </div>
+          <div className="py-8 sm:px-8 sm:py-2">
+            <h3 className="text-[0.6875rem] font-light uppercase tracking-eyebrow text-gold sm:text-xs">
               {t('contact.emailLabel')}
             </h3>
             <p className="mt-4 text-sm font-light leading-relaxed">
               <a
-                href="mailto:epistemebudapest@gmail.com"
+                href={`mailto:${RESTAURANT.contactEmail}`}
                 className="text-ivory-muted transition-colors duration-500 hover:text-gold-bright"
               >
-                epistemebudapest@gmail.com
+                {RESTAURANT.contactEmail}
               </a>
             </p>
           </div>
