@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Voice service build artefacts (it has its own dependency tree)
+voice-agent/node_modules/
+voice-agent/dist/

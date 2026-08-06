@@ -1,0 +1,4 @@
+# The voice receptionist is a separate long-lived WebSocket service, deployed
+# to its own host. Serverless functions cannot hold the connection open, so it
+# must never be part of the Next.js build.
+voice-agent/

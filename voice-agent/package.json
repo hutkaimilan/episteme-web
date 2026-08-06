@@ -1,0 +1,24 @@
+{
+  "name": "episteme-voice",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time multilingual voice receptionist for EPISTEME, built on Twilio ConversationRelay.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test 'dist/*.test.js'"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
+  }
+}
