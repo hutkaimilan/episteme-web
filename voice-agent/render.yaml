@@ -1,0 +1,33 @@
+# Alternative to Railway. Either host works; both hold WebSockets open, which
+# is the one hard requirement — a serverless function cannot.
+services:
+  - type: web
+    name: episteme-voice
+    runtime: docker
+    rootDir: voice-agent
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    plan: starter
+    envVars:
+      - key: PUBLIC_HOSTNAME
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_MODEL
+        value: gpt-4.1-mini
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_API_KEY
+        sync: false
+      - key: TWILIO_API_SECRET
+        sync: false
+      - key: TWILIO_SMS_FROM
+        sync: false
