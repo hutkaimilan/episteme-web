@@ -123,6 +123,13 @@ type Session = {
   messages: ChatMessage[];
   /** Guards against overlapping turns if the caller talks over a reply. */
   busy: boolean;
+  /**
+   * Words spoken while a turn was already running. Never dropped: callers talk
+   * over the agent precisely when they are supplying the detail it just asked
+   * for — a name, a time — so discarding these loses the one thing the turn
+   * was waiting on, and the agent has no record of ever having heard it.
+   */
+  queue: string[];
 };
 
 const wss = new WebSocketServer({ server: httpServer, path: '/relay' });
@@ -156,6 +163,81 @@ function applySystemPrompt(session: Session): void {
   }
 }
 
+/**
+ * Drop a trailing assistant message whose tool calls never got results.
+ *
+ * A turn that dies between requesting tools and recording their output leaves
+ * history the provider rejects outright, so every later turn in the call would
+ * fail too — one transient error would take down the whole conversation rather
+ * than a single reply.
+ */
+function repairDanglingToolCalls(messages: ChatMessage[]): void {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message) return;
+    if (message.role === 'tool') return; // Results present; history is intact.
+    if (message.role !== 'assistant') return;
+    if (!('tool_calls' in message) || !message.tool_calls?.length) return;
+    messages.splice(i, 1);
+    console.warn('[WS] discarded an unanswered tool-call message to keep history valid');
+    return;
+  }
+}
+
+/**
+ * Run one turn: record what the caller said, stream the reply, and send the
+ * confirmation SMS if a booking was committed.
+ *
+ * Never throws. Silence is the worst outcome on a live call, so a failure is
+ * spoken as an honest apology instead of propagating.
+ */
+async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Promise<void> {
+  active.messages.push({ role: 'user', content: utterance });
+
+  // Held until the turn ends: the booking is committed inside the tool call,
+  // but the caller should hear the code before their phone buzzes.
+  let booked: { code: string; date: string; time: string; guests: number } | null = null;
+  let spokeAnything = false;
+
+  try {
+    await runTurn(
+      active.messages,
+      {
+        callerNumber: active.callerNumber,
+        lang: active.lang,
+        onBooked: (code, date, time, guests) => {
+          booked = { code, date, time, guests };
+        },
+        onLanguageChange: (next) => {
+          active.lang = next;
+          applySystemPrompt(active);
+          send(ws, {
+            type: 'language',
+            ttsLanguage: LANG_TAGS[next],
+            transcriptionLanguage: LANG_TAGS[next],
+          });
+          console.log('[WS] language switched to', next, 'on', active.callSid);
+        },
+      },
+      (token) => {
+        spokeAnything = true;
+        speak(ws, token, false);
+      },
+    );
+    speak(ws, '', true);
+  } catch (error) {
+    console.error('[WS] turn failed on', active.callSid, error);
+    repairDanglingToolCalls(active.messages);
+    if (spokeAnything) speak(ws, '', true);
+    speak(ws, FAILURE_MESSAGE[active.lang], true);
+  }
+
+  if (booked) {
+    const b = booked as { code: string; date: string; time: string; guests: number };
+    void sendConfirmationSms(active.callerNumber, active.lang, b.code, b.date, b.time, b.guests);
+  }
+}
+
 wss.on('connection', (ws: WebSocket) => {
   let session: Session | null = null;
 
@@ -180,6 +262,7 @@ wss.on('connection', (ws: WebSocket) => {
             lang: DEFAULT_LANG,
             messages: [],
             busy: false,
+            queue: [],
           };
           applySystemPrompt(session);
           // The greeting was already spoken by Twilio from the TwiML, but the
@@ -196,59 +279,27 @@ wss.on('connection', (ws: WebSocket) => {
           const utterance = String(message.voicePrompt ?? '').trim();
           if (!utterance) return;
 
-          if (session.busy) {
-            console.warn('[WS] dropped overlapping turn on', session.callSid);
+          const active = session;
+          active.queue.push(utterance);
+
+          // A turn is already in flight. The words are held rather than
+          // dropped, and answered when it finishes.
+          if (active.busy) {
+            console.log('[WS] queued overlapping utterance on', active.callSid);
             return;
           }
-          session.busy = true;
 
-          const active = session;
-          active.messages.push({ role: 'user', content: utterance });
-
-          // Held until the turn ends: the booking is committed inside the tool
-          // call, but the caller should hear the code before their phone buzzes.
-          let booked: { code: string; date: string; time: string; guests: number } | null = null;
-          let spokeAnything = false;
-
+          active.busy = true;
           try {
-            await runTurn(
-              active.messages,
-              {
-                callerNumber: active.callerNumber,
-                lang: active.lang,
-                onBooked: (code, date, time, guests) => {
-                  booked = { code, date, time, guests };
-                },
-                onLanguageChange: (next) => {
-                  active.lang = next;
-                  applySystemPrompt(active);
-                  send(ws, {
-                    type: 'language',
-                    ttsLanguage: LANG_TAGS[next],
-                    transcriptionLanguage: LANG_TAGS[next],
-                  });
-                  console.log('[WS] language switched to', next, 'on', active.callSid);
-                },
-              },
-              (token) => {
-                spokeAnything = true;
-                speak(ws, token, false);
-              },
-            );
-            speak(ws, '', true);
-          } catch (error) {
-            console.error('[WS] turn failed on', active.callSid, error);
-            // Silence is the worst possible outcome on a live call, so an
-            // honest apology is spoken rather than letting the line hang.
-            if (spokeAnything) speak(ws, '', true);
-            speak(ws, FAILURE_MESSAGE[active.lang], true);
+            while (active.queue.length > 0) {
+              // Everything said during the previous turn is answered in one
+              // reply: responding to each fragment separately makes the agent
+              // monologue at a caller who has already stopped talking.
+              const batch = active.queue.splice(0, active.queue.length).join(' ');
+              await runOneTurn(ws, active, batch);
+            }
           } finally {
             active.busy = false;
-          }
-
-          if (booked) {
-            const b = booked as { code: string; date: string; time: string; guests: number };
-            void sendConfirmationSms(active.callerNumber, active.lang, b.code, b.date, b.time, b.guests);
           }
           return;
         }
