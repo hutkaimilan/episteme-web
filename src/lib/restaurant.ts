@@ -14,11 +14,16 @@ export const RESTAURANT = {
   capacity: 50,
   depositEur: '275,59 €',
   contactEmail: 'epistemebudapest@gmail.com',
-  /** Retell voice agent's inbound number. E.164 for tel: links, display for
-   * human-readable rendering — both derived from the one Twilio number
-   * bought through Retell (dashboard.retellai.com/phone-numbers). */
-  phoneE164: '+18483680394',
-  phoneDisplay: '+1 (848) 368-0394',
+  /**
+   * The voice agent's inbound number. E.164 for tel: links, display for
+   * human-readable rendering.
+   *
+   * Owned directly in Twilio, not through Retell: a Retell-provisioned number
+   * lives in Retell's own account, so its call webhook cannot be pointed at
+   * our own service and the number never appears in our Twilio console at all.
+   */
+  phoneE164: '+19498107263',
+  phoneDisplay: '+1 (949) 810-7263',
   /**
    * Where the internal [ADMIN] cancellation copy goes. Deliberately a
    * SEPARATE constant from contactEmail: contactEmail is the public address
