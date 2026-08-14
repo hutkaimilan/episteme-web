@@ -23,6 +23,7 @@ import { runTurn, type ChatMessage } from './llm.js';
 import { nowLocalTime, todayLocal } from './slot.js';
 import { sendConfirmationSms, verifyTwilioSignature } from './twilio.js';
 import { smsConfigured } from './env.js';
+import { isEmailConfigured, sendAdminBookingEmail } from './email.js';
 
 /** Language a call opens in before the caller has said anything. */
 const DEFAULT_LANG: Lang = 'hu';
@@ -196,7 +197,7 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
 
   // Held until the turn ends: the booking is committed inside the tool call,
   // but the caller should hear the code before their phone buzzes.
-  let booked: { code: string; date: string; time: string; guests: number } | null = null;
+  let booked: { name: string; code: string; date: string; time: string; guests: number } | null = null;
   let spokeAnything = false;
 
   try {
@@ -205,8 +206,8 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
       {
         callerNumber: active.callerNumber,
         lang: active.lang,
-        onBooked: (code, date, time, guests) => {
-          booked = { code, date, time, guests };
+        onBooked: (name, code, date, time, guests) => {
+          booked = { name, code, date, time, guests };
         },
         onLanguageChange: (next) => {
           active.lang = next;
@@ -233,8 +234,11 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
   }
 
   if (booked) {
-    const b = booked as { code: string; date: string; time: string; guests: number };
+    const b = booked as { name: string; code: string; date: string; time: string; guests: number };
+    // Both detached: the caller has already heard their code, and neither the
+    // guest's text nor the restaurant's e-mail may hold the line open.
     void sendConfirmationSms(active.callerNumber, active.lang, b.code, b.date, b.time, b.guests);
+    void sendAdminBookingEmail(b.name, active.callerNumber, b.code, b.date, b.time, b.guests);
   }
 }
 
@@ -346,6 +350,7 @@ httpServer.listen(env.port, () => {
   console.log(`[BOOT] Relay  wss://${env.publicHostname}/relay`);
   console.log(`[BOOT] Model  ${env.llmModel} @ ${env.llmBaseUrl}`);
   console.log(`[BOOT] SMS    ${smsConfigured() ? 'enabled' : 'DISABLED (bookings still work)'}`);
+  console.log(`[BOOT] Email  ${isEmailConfigured() ? 'enabled' : 'DISABLED (bookings still work)'}`);
 });
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

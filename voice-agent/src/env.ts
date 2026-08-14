@@ -23,6 +23,10 @@ type Env = {
   twilioApiKey: string;
   twilioApiSecret: string;
   smsFrom: string;
+  emailjsServiceId: string;
+  emailjsTemplateId: string;
+  emailjsPublicKey: string;
+  emailjsPrivateKey: string;
 };
 
 let cached: Env | null = null;
@@ -92,6 +96,12 @@ export function getEnv(): Env {
     twilioApiKey: process.env.TWILIO_API_KEY?.trim() ?? '',
     twilioApiSecret: process.env.TWILIO_API_SECRET?.trim() ?? '',
     smsFrom: process.env.TWILIO_SMS_FROM?.trim() ?? '',
+    // Optional for the same reason as SMS: a booking must never fail because
+    // the restaurant's notification mail is unconfigured.
+    emailjsServiceId: process.env.EMAILJS_SERVICE_ID?.trim() ?? '',
+    emailjsTemplateId: process.env.EMAILJS_TEMPLATE_ID?.trim() ?? '',
+    emailjsPublicKey: process.env.EMAILJS_PUBLIC_KEY?.trim() ?? '',
+    emailjsPrivateKey: process.env.EMAILJS_PRIVATE_KEY?.trim() ?? '',
   };
 
   return cached;

@@ -33,7 +33,7 @@ const SHARED_RULES = `
 - Never invent, guess or "reconstruct" anything the caller said. If you did not hear it clearly, ask again.
 - Never state that a booking exists, is confirmed, or is cancelled unless a tool call returned success. Report tool failures honestly.
 - Say times conversationally, but always pass strict 24-hour HH:MM to tools.
-- Read the confirmation code slowly, letter by letter and digit by digit, with pauses.
+- book_table returns spoken_code: already spelled out in this language. Say those exact words as the code, unhurried. Never read the raw code — a Latin-lettered code is pronounced in English by the voice, which is unintelligible to a caller who does not speak it.
 - Keep every reply to one or two short sentences. This is a phone call, not an email.
 `.trim();
 
@@ -52,7 +52,7 @@ MENET:
 2. Hívd meg a check_availability eszközt.
 3. Ha van hely, kérdezd meg a vendég teljes nevét, és olvasd vissza megerősítésre.
 4. Hívd meg a book_table eszközt.
-5. Mondd el a kapott foglalási kódot lassan, tagoltan, majd köszönj el.
+5. Mondd el a foglalási kódot a book_table által visszaadott spoken_code szöveggel, szó szerint, majd köszönj el.
 
 NYITVATARTÁS: hétfőn zárva. Asztalfoglalás ${RESTAURANT.service.firstSeating} és ${RESTAURANT.service.lastSeating} között, legfeljebb ${RESTAURANT.maxPartySize} főre.
 
@@ -61,7 +61,7 @@ SZABÁLYOK:
 - Soha ne találd ki és ne egészítsd ki, amit nem hallottál tisztán. Kérdezz vissza.
 - Soha ne állítsd, hogy egy foglalás létrejött, amíg az eszköz nem adott sikert vissza. A hibát mondd el őszintén.
 - Az időpontot természetesen mondd ("nyolc órára"), az eszköznek viszont mindig szigorú HH:MM formában add át ("20:00").
-- A foglalási kódot lassan, betűnként és számjegyenként mondd, szünetekkel: "E... P... kötőjel... három... négy... nulla... nulla".
+- A foglalási kódot KIZÁRÓLAG a spoken_code mezőben kapott szöveggel mondd ki, pontosan úgy, ahogy ott áll (például: "é, pé, kötőjel, nyolc, kettő, három, négy"). Soha ne olvasd fel a nyers kódot ("EP-8234") — azt a hang angolul ejtené ki.
 - Egy-két rövid mondatnál többet ne mondj egyszerre.
 `.trim();
 }
@@ -81,7 +81,7 @@ SEQUENCE:
 2. Call the check_availability tool.
 3. If a table is free, ask for the guest's full name and read it back for confirmation.
 4. Call the book_table tool.
-5. Read out the confirmation code slowly, then close the call.
+5. Read the confirmation code using the spoken_code text returned by book_table, verbatim, then close the call.
 
 OPENING: closed on Mondays. Seatings between ${RESTAURANT.service.firstSeating} and ${RESTAURANT.service.lastSeating}, up to ${RESTAURANT.maxPartySize} guests.
 

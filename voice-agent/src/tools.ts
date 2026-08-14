@@ -10,6 +10,7 @@
 
 import { bookTable, cancelBooking, checkAvailability, normalizeCode } from './booking.js';
 import { RESTAURANT, isLang, type Lang } from './config.js';
+import { spokenCode } from './spoken.js';
 
 export type ToolSchema = {
   type: 'function';
@@ -47,7 +48,8 @@ export const TOOL_SCHEMAS: readonly ToolSchema[] = [
       description:
         'Commit a reservation and mint its confirmation code. Only call this after check_availability ' +
         'reported a free table and the guest confirmed their name. The phone number is supplied by the ' +
-        'system from caller ID — never ask for it and never pass one.',
+        'system from caller ID — never ask for it and never pass one. The result carries spoken_code: ' +
+        'say those words exactly, and never read the raw code instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -107,8 +109,8 @@ export type ToolContext = {
   /** From Twilio caller ID — authoritative, never from speech. */
   callerNumber: string;
   lang: string;
-  /** Set when a booking succeeds, so the session can send the SMS afterwards. */
-  onBooked: (code: string, date: string, time: string, guests: number) => void;
+  /** Set when a booking succeeds, so the session can notify afterwards. */
+  onBooked: (name: string, code: string, date: string, time: string, guests: number) => void;
   /** Re-tunes both speech recognition and the TTS voice mid-call. */
   onLanguageChange: (lang: Lang) => void;
 };
@@ -150,7 +152,11 @@ export async function dispatchTool(
           lang: ctx.lang,
         });
         if (result.success) {
-          ctx.onBooked(result.code, result.date, result.time, result.guests);
+          ctx.onBooked(result.name, result.code, result.date, result.time, result.guests);
+          // The spoken form is supplied rather than left to the model: read
+          // aloud verbatim it is pronounced in the caller's language, whereas
+          // the raw code is not.
+          return { ...result, spoken_code: spokenCode(result.code, ctx.lang as Lang) };
         }
         return { ...result };
       }

@@ -18,6 +18,8 @@ export const RESTAURANT = {
   timezone: 'Europe/Budapest',
   address: 'Budapest, Andrássy út 45.',
   contactEmail: 'epistemebudapest@gmail.com',
+  /** Where the restaurant's own copy of each booking is sent. */
+  adminEmail: 'epistemebudapest@gmail.com',
 
   /** Seats released to the voice channel per service. */
   capacityPerNight: 50,

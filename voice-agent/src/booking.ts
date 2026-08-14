@@ -16,7 +16,7 @@ export type AvailabilityResult =
   | { available: false; reason: SlotRejection | 'insufficient_capacity'; remaining?: number };
 
 export type BookingResult =
-  | { success: true; code: string; date: string; time: string; guests: number; remaining: number }
+  | { success: true; code: string; name: string; date: string; time: string; guests: number; remaining: number }
   | { success: false; reason: SlotRejection | 'insufficient_capacity' | 'missing_name' | 'missing_phone' };
 
 export async function checkAvailability(
@@ -70,7 +70,7 @@ export async function bookTable(params: {
       lang: params.lang,
       createdAt: new Date().toISOString(),
     });
-    return { success: true, code, date: params.date, time: params.time, guests: params.guests, remaining };
+    return { success: true, code, name, date: params.date, time: params.time, guests: params.guests, remaining };
   } catch (error) {
     // Compensating action: the seats are held but no booking exists, which
     // would silently shrink capacity for the night on every such failure.
