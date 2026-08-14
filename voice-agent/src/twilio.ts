@@ -5,6 +5,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getEnv, smsConfigured } from './env.js';
 import { RESTAURANT, type Lang } from './config.js';
+import { toGsm7 } from './gsm7.js';
 
 /**
  * Verify Twilio's X-Twilio-Signature over a form-encoded webhook.
@@ -39,11 +40,11 @@ export function verifyTwilioSignature(
 
 const SMS_BODY: Record<Lang, (code: string, date: string, time: string, guests: number) => string> = {
   hu: (code, date, time, guests) =>
-    `${RESTAURANT.name} — foglalása visszaigazolva.\n${date} ${time}, ${guests} fő\nFoglalási kód: ${code}\n${RESTAURANT.address}`,
+    `${RESTAURANT.name}: foglalása visszaigazolva.\n${date} ${time}, ${guests} fő\nFoglalási kód: ${code}\n${RESTAURANT.address}`,
   en: (code, date, time, guests) =>
-    `${RESTAURANT.name} — your reservation is confirmed.\n${date} at ${time}, ${guests} guests\nConfirmation code: ${code}\n${RESTAURANT.address}`,
+    `${RESTAURANT.name}: your reservation is confirmed.\n${date} at ${time}, ${guests} guests\nConfirmation code: ${code}\n${RESTAURANT.address}`,
   es: (code, date, time, guests) =>
-    `${RESTAURANT.name} — su reserva está confirmada.\n${date} a las ${time}, ${guests} personas\nCódigo de confirmación: ${code}\n${RESTAURANT.address}`,
+    `${RESTAURANT.name}: su reserva está confirmada.\n${date} a las ${time}, ${guests} personas\nCódigo de confirmación: ${code}\n${RESTAURANT.address}`,
 };
 
 /**
@@ -81,7 +82,10 @@ export async function sendConfirmationSms(
         body: new URLSearchParams({
           To: to,
           From: env.smsFrom,
-          Body: SMS_BODY[lang](code, date, time, guests),
+          // Folded here rather than written accent-free in the templates:
+          // the templates stay readable Hungarian, and the constraint is
+          // enforced in one place that a later edit cannot quietly bypass.
+          Body: toGsm7(SMS_BODY[lang](code, date, time, guests)),
         }),
       },
     );

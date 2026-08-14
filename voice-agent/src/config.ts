@@ -16,7 +16,7 @@ export const RESTAURANT = {
   spokenName: 'Episztémé',
 
   timezone: 'Europe/Budapest',
-  address: 'Budapest, Andrássy út 45.',
+  address: 'Budapest, Kossuth Lajos tér 14.',
   contactEmail: 'epistemebudapest@gmail.com',
   /** Where the restaurant's own copy of each booking is sent. */
   adminEmail: 'epistemebudapest@gmail.com',
@@ -28,12 +28,15 @@ export const RESTAURANT = {
 
   /** Service window, local time, 24h. Bookings outside this are refused. */
   service: {
-    firstSeating: '18:00',
+    firstSeating: '20:00',
     lastSeating: '22:00',
   },
 
-  /** Days the restaurant is closed (0 = Sunday … 6 = Saturday). */
-  closedWeekdays: [1] as const, // Monday
+  /**
+   * Days the restaurant is closed (0 = Sunday … 6 = Saturday). Empty means
+   * open every day, which is what the published hours say.
+   */
+  closedWeekdays: [] as readonly number[],
 
   /** How far ahead the agent may book. */
   maxDaysAhead: 90,

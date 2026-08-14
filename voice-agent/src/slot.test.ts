@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 
 import { validateSlot, todayLocal, nowLocalTime } from './slot.js';
 import { normalizeCode } from './booking.js';
-import { isLang, SUPPORTED_LANGS, LANG_TAGS } from './config.js';
+import { isLang, RESTAURANT, SUPPORTED_LANGS, LANG_TAGS } from './config.js';
+
+/** Shift an HH:MM time by whole minutes, so window edges are derived not typed. */
+function shiftMinutes(time: string, delta: number): string {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  const total = h * 60 + m + delta;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
 
 // A fixed instant, mid-afternoon Budapest time, so "today at 20:00" is still
 // in the future and the past/future boundaries are unambiguous.
@@ -49,27 +56,32 @@ test('a date beyond the booking horizon is refused', () => {
   });
 });
 
-test('Monday is refused as a closing day', () => {
-  assert.deepEqual(validateSlot('2026-08-10', '20:00', 2, NOW), {
-    ok: false,
-    reason: 'closed_that_day',
-  });
+test('a closing day is refused, and a day that is not one is not', () => {
+  // 2026-08-10 is a Monday. Driven from config rather than asserting a fixed
+  // policy: which days close is a business decision that changes, whereas
+  // "a closing day is refused" is the rule under test.
+  const expected = RESTAURANT.closedWeekdays.includes(1)
+    ? { ok: false, reason: 'closed_that_day' }
+    : { ok: true };
+  assert.deepEqual(validateSlot('2026-08-10', RESTAURANT.service.firstSeating, 2, NOW), expected);
 });
 
 test('times outside the service window are refused at both ends', () => {
-  assert.deepEqual(validateSlot('2026-08-07', '17:59', 2, NOW), {
+  const minuteBefore = shiftMinutes(RESTAURANT.service.firstSeating, -1);
+  const minuteAfter = shiftMinutes(RESTAURANT.service.lastSeating, 1);
+  assert.deepEqual(validateSlot('2026-08-07', minuteBefore, 2, NOW), {
     ok: false,
     reason: 'outside_service_hours',
   });
-  assert.deepEqual(validateSlot('2026-08-07', '22:01', 2, NOW), {
+  assert.deepEqual(validateSlot('2026-08-07', minuteAfter, 2, NOW), {
     ok: false,
     reason: 'outside_service_hours',
   });
 });
 
 test('service window boundaries themselves are accepted', () => {
-  assert.deepEqual(validateSlot('2026-08-07', '18:00', 2, NOW), { ok: true });
-  assert.deepEqual(validateSlot('2026-08-07', '22:00', 2, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-07', RESTAURANT.service.firstSeating, 2, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-07', RESTAURANT.service.lastSeating, 2, NOW), { ok: true });
 });
 
 test('malformed dates and times are refused rather than coerced', () => {

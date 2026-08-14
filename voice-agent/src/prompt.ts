@@ -28,6 +28,32 @@ type PromptContext = {
   callerNumber: string;
 };
 
+
+/**
+ * Weekday names for the closed-day sentence. Indexed the way Date.getDay() is,
+ * so the config's numbers map straight across.
+ */
+const WEEKDAYS: Record<Lang, readonly string[]> = {
+  hu: ['vasárnap', 'hétfőn', 'kedden', 'szerdán', 'csütörtökön', 'pénteken', 'szombaton'],
+  en: ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'],
+  es: ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'],
+};
+
+/**
+ * State the closing days from config rather than writing them into each
+ * language's prompt. Restated by hand in three places they drift silently from
+ * the booking engine, and the agent then turns callers away on a day it would
+ * happily have taken the booking.
+ */
+function closedDays(lang: Lang): string {
+  const days = RESTAURANT.closedWeekdays;
+  if (days.length === 0) {
+    return { hu: 'minden nap nyitva', en: 'open every day', es: 'abierto todos los días' }[lang];
+  }
+  const names = days.map((day) => WEEKDAYS[lang][day] ?? '').filter(Boolean).join(', ');
+  return { hu: `${names} zárva`, en: `closed on ${names}`, es: `cerrado los ${names}` }[lang];
+}
+
 const SHARED_RULES = `
 - Greet exactly once, at the start. Never greet again — not when confirming, not when saying goodbye.
 - Never invent, guess or "reconstruct" anything the caller said. If you did not hear it clearly, ask again.
@@ -54,7 +80,7 @@ MENET:
 4. Hívd meg a book_table eszközt.
 5. Mondd el a foglalási kódot a book_table által visszaadott spoken_code szöveggel, szó szerint, majd köszönj el.
 
-NYITVATARTÁS: hétfőn zárva. Asztalfoglalás ${RESTAURANT.service.firstSeating} és ${RESTAURANT.service.lastSeating} között, legfeljebb ${RESTAURANT.maxPartySize} főre.
+NYITVATARTÁS: ${closedDays('hu')}. Asztalfoglalás ${RESTAURANT.service.firstSeating} és ${RESTAURANT.service.lastSeating} között, legfeljebb ${RESTAURANT.maxPartySize} főre.
 
 SZABÁLYOK:
 - Egyszer köszönj, a hívás elején. Utána soha többé ne köszönj — sem visszaigazoláskor, sem búcsúzáskor.
@@ -83,7 +109,7 @@ SEQUENCE:
 4. Call the book_table tool.
 5. Read the confirmation code using the spoken_code text returned by book_table, verbatim, then close the call.
 
-OPENING: closed on Mondays. Seatings between ${RESTAURANT.service.firstSeating} and ${RESTAURANT.service.lastSeating}, up to ${RESTAURANT.maxPartySize} guests.
+OPENING: ${closedDays('en')}. Seatings between ${RESTAURANT.service.firstSeating} and ${RESTAURANT.service.lastSeating}, up to ${RESTAURANT.maxPartySize} guests.
 
 RULES:
 ${SHARED_RULES}
@@ -107,7 +133,7 @@ SECUENCIA:
 4. Llama a la herramienta book_table.
 5. Di el código de confirmación despacio y despídete.
 
-HORARIO: cerrado los lunes. Reservas entre las ${RESTAURANT.service.firstSeating} y las ${RESTAURANT.service.lastSeating}, hasta ${RESTAURANT.maxPartySize} personas.
+HORARIO: ${closedDays('es')}. Reservas entre las ${RESTAURANT.service.firstSeating} y las ${RESTAURANT.service.lastSeating}, hasta ${RESTAURANT.maxPartySize} personas.
 
 REGLAS:
 - Saluda una sola vez, al principio. Nunca vuelvas a saludar — ni al confirmar ni al despedirte.
