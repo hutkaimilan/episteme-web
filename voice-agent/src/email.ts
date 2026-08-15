@@ -45,6 +45,33 @@ function redact(value: string): string {
  * a mail provider is slow, and the booking itself is already committed in
  * Redis by this point — the e-mail is a notification, not the record.
  */
+export async function sendAdminCancellationEmail(
+  name: string,
+  phone: string,
+  code: string,
+  date: string,
+  time: string,
+  guests: number,
+): Promise<void> {
+  const body = [
+    'Telefonos foglalás lemondva.',
+    '',
+    `Foglalási kód: ${code}`,
+    `Dátum: ${date}`,
+    `Időpont: ${time}`,
+    `Létszám: ${guests} fő`,
+    '',
+    `Vendég: ${name}`,
+    `Telefon: ${phone}`,
+    '',
+    `A ${guests} hely visszakerült az adott este szabad kapacitásába.`,
+    '',
+    RESTAURANT.name,
+  ].join('\n');
+
+  await send(`[ADMIN] Lemondott telefonos foglalás - ${code}`, body, code, 'cancellation notice');
+}
+
 export async function sendAdminBookingEmail(
   name: string,
   phone: string,
@@ -53,12 +80,6 @@ export async function sendAdminBookingEmail(
   time: string,
   guests: number,
 ): Promise<void> {
-  if (!isEmailConfigured()) {
-    console.warn('[EMAIL] not configured — skipping admin notice for', code);
-    return;
-  }
-
-  const env = getEnv();
   const body = [
     'Új foglalás érkezett telefonon.',
     '',
@@ -75,6 +96,20 @@ export async function sendAdminBookingEmail(
     RESTAURANT.name,
   ].join('\n');
 
+  await send(`[ADMIN] Új telefonos foglalás - ${code}`, body, code, 'admin notice');
+}
+
+/**
+ * One send path for every notice, so a later message cannot quietly skip the
+ * configuration check, the timeout or the key redaction.
+ */
+async function send(subject: string, body: string, code: string, kind: string): Promise<void> {
+  if (!isEmailConfigured()) {
+    console.warn('[EMAIL] not configured — skipping', kind, 'for', code);
+    return;
+  }
+
+  const env = getEnv();
   try {
     const response = await fetch(EMAILJS_URL, {
       method: 'POST',
@@ -89,7 +124,7 @@ export async function sendAdminBookingEmail(
         template_params: {
           to_email: RESTAURANT.adminEmail,
           to_name: RESTAURANT.name,
-          subject: `[ADMIN] Új telefonos foglalás - ${code}`,
+          subject,
           message: body,
         },
       }),
@@ -97,12 +132,12 @@ export async function sendAdminBookingEmail(
 
     if (!response.ok) {
       const detail = await response.text().catch(() => '<unreadable body>');
-      console.error(`[EMAIL] HTTP ${response.status} for ${code}:`, redact(detail.slice(0, 300)));
+      console.error(`[EMAIL] ${kind} HTTP ${response.status} for ${code}:`, redact(detail.slice(0, 300)));
       return;
     }
 
-    console.log('[EMAIL] admin notice sent for', code);
+    console.log(`[EMAIL] ${kind} sent for`, code);
   } catch (error) {
-    console.error('[EMAIL] send failed for', code, redact(error instanceof Error ? error.message : String(error)));
+    console.error(`[EMAIL] ${kind} failed for`, code, redact(error instanceof Error ? error.message : String(error)));
   }
 }

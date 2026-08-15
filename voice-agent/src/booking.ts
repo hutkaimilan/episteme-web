@@ -85,14 +85,33 @@ export async function bookTable(params: {
   }
 }
 
-export async function cancelBooking(code: string): Promise<{ success: boolean; reason?: string }> {
+export type CancelResult =
+  | { success: true; code: string; name: string; phone: string; date: string; time: string; guests: number }
+  | { success: false; reason: 'unknown_code' | 'already_cancelled' };
+
+export async function cancelBooking(code: string): Promise<CancelResult> {
   const normalized = normalizeCode(code);
   const record = await loadBooking(normalized);
   if (!record || !record.code) return { success: false, reason: 'unknown_code' };
 
+  // A cancelled booking is kept with its seats zeroed rather than deleted, so
+  // the code still resolves if the guest calls back about it. Cancelling twice
+  // must not read as a fresh success: the caller would be told their table was
+  // just released when in fact it went days ago, and the restaurant would get a
+  // second notice for a table it already freed.
+  if (record.guests === 0) return { success: false, reason: 'already_cancelled' };
+
   await releaseSeats(record.date, record.guests);
   await saveBooking({ ...record, guests: 0 });
-  return { success: true };
+  return {
+    success: true,
+    code: record.code,
+    name: record.name,
+    phone: record.phone,
+    date: record.date,
+    time: record.time,
+    guests: record.guests,
+  };
 }
 
 /**

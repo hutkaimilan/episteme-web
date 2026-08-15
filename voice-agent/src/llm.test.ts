@@ -63,6 +63,7 @@ function baseContext(overrides: Partial<ToolContext> = {}): ToolContext {
     callerNumber: '+36301234567',
     lang: 'hu',
     onBooked: () => {},
+    onCancelled: () => {},
     onLanguageChange: () => {},
     ...overrides,
   };

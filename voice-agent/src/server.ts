@@ -21,9 +21,9 @@ import { LANG_TAGS, RESTAURANT, isLang, type Lang } from './config.js';
 import { FAILURE_MESSAGE, GREETING, systemPrompt } from './prompt.js';
 import { runTurn, type ChatMessage } from './llm.js';
 import { nowLocalTime, todayLocal } from './slot.js';
-import { sendConfirmationSms, verifyTwilioSignature } from './twilio.js';
+import { sendCancellationSms, sendConfirmationSms, verifyTwilioSignature } from './twilio.js';
 import { smsConfigured } from './env.js';
-import { isEmailConfigured, sendAdminBookingEmail } from './email.js';
+import { isEmailConfigured, sendAdminBookingEmail, sendAdminCancellationEmail } from './email.js';
 
 /** Language a call opens in before the caller has said anything. */
 const DEFAULT_LANG: Lang = 'hu';
@@ -198,6 +198,9 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
   // Held until the turn ends: the booking is committed inside the tool call,
   // but the caller should hear the code before their phone buzzes.
   let booked: { name: string; code: string; date: string; time: string; guests: number } | null = null;
+  let cancelled:
+    | { name: string; phone: string; code: string; date: string; time: string; guests: number }
+    | null = null;
   let spokeAnything = false;
 
   try {
@@ -208,6 +211,9 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
         lang: active.lang,
         onBooked: (name, code, date, time, guests) => {
           booked = { name, code, date, time, guests };
+        },
+        onCancelled: (name, phone, code, date, time, guests) => {
+          cancelled = { name, phone, code, date, time, guests };
         },
         onLanguageChange: (next) => {
           active.lang = next;
@@ -239,6 +245,14 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
     // guest's text nor the restaurant's e-mail may hold the line open.
     void sendConfirmationSms(active.callerNumber, active.lang, b.code, b.date, b.time, b.guests);
     void sendAdminBookingEmail(b.name, active.callerNumber, b.code, b.date, b.time, b.guests);
+  }
+
+  if (cancelled) {
+    const c = cancelled as { name: string; phone: string; code: string; date: string; time: string; guests: number };
+    // Texted to the number on the booking, not to caller ID: someone may well
+    // cancel from a different phone than the one that made the reservation.
+    void sendCancellationSms(c.phone, active.lang, c.code, c.date, c.time);
+    void sendAdminCancellationEmail(c.name, c.phone, c.code, c.date, c.time, c.guests);
   }
 }
 

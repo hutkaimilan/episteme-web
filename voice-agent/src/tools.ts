@@ -119,6 +119,15 @@ export type ToolContext = {
   lang: string;
   /** Set when a booking succeeds, so the session can notify afterwards. */
   onBooked: (name: string, code: string, date: string, time: string, guests: number) => void;
+  /** Set when a cancellation succeeds, for the same reason. */
+  onCancelled: (
+    name: string,
+    phone: string,
+    code: string,
+    date: string,
+    time: string,
+    guests: number,
+  ) => void;
   /** Re-tunes both speech recognition and the TTS voice mid-call. */
   onLanguageChange: (lang: Lang) => void;
 };
@@ -187,8 +196,16 @@ export async function dispatchTool(
         return { switched: true, lang: next };
       }
 
-      case 'cancel_booking':
-        return { ...(await cancelBooking(normalizeCode(String(args.code ?? '')))) };
+      case 'cancel_booking': {
+        const result = await cancelBooking(normalizeCode(String(args.code ?? '')));
+        if (result.success) {
+          console.log('[TOOL] cancelled', result.code);
+          ctx.onCancelled(result.name, result.phone, result.code, result.date, result.time, result.guests);
+        } else {
+          console.warn('[TOOL] cancel refused:', result.reason);
+        }
+        return { ...result };
+      }
 
       default:
         return { error: 'unknown_tool', detail: `No tool named ${name}.` };
