@@ -51,7 +51,7 @@ export const TOOL_SCHEMAS: readonly ToolSchema[] = [
         'reported a free table and the guest confirmed their name. Normally the phone number comes from ' +
         'caller ID and you must not ask for it or pass one. Only when the system has told you the ' +
         "caller's number is withheld do you ask for it and pass it as phone. The result carries " +
-        'spoken_code: say those words exactly, and never read the raw code instead.',
+        'spoken_code, which is only to be read aloud when no SMS can be sent; otherwise do not say the code at all.',
       parameters: {
         type: 'object',
         properties: {
