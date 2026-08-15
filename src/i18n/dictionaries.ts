@@ -120,6 +120,16 @@ export type Dictionary = {
     ledgerTitle: string;
     guestsUnit: string;
   };
+  availability: {
+    eyebrow: string;
+    title: string;
+    intro: string;
+    seatsFree: string;
+    full: string;
+    error: string;
+    retry: string;
+    days: { sun: string; mon: string; tue: string; wed: string; thu: string; fri: string; sat: string };
+  };
   contact: {
     addressLabel: string;
     hoursLabel: string;
@@ -505,6 +515,17 @@ const hu: Dictionary = {
       'Elnézését kérjük, a kapcsolat megszakadt — kérem, próbálja meg újra néhány pillanat múlva.',
     ledgerTitle: 'Rögzített foglalásai',
     guestsUnit: 'fő',
+  },
+  availability: {
+    eyebrow: 'Szabad helyek',
+    title: 'Aznap este hányan férnek még be.',
+    intro:
+      'A terem ötven vendéget fogad egyetlen ültetésben. Az alábbi számok élőben követik a foglalásokat — telefonon és itt az oldalon egyaránt.',
+    seatsFree: 'szabad hely',
+    full: 'Betelt',
+    error: 'A szabad helyeket most nem sikerült lekérdezni.',
+    retry: 'Újra',
+    days: { sun: 'Vasárnap', mon: 'Hétfő', tue: 'Kedd', wed: 'Szerda', thu: 'Csütörtök', fri: 'Péntek', sat: 'Szombat' },
   },
   contact: {
     addressLabel: 'Cím',
@@ -894,6 +915,17 @@ const en: Dictionary = {
     ledgerTitle: 'Your reservations',
     guestsUnit: 'guests',
   },
+  availability: {
+    eyebrow: 'Seats remaining',
+    title: 'How many places are left each evening.',
+    intro:
+      'The room seats fifty for a single sitting. These figures follow the reservations live — those taken by telephone as well as those made here.',
+    seatsFree: 'seats free',
+    full: 'Full',
+    error: 'Availability could not be read just now.',
+    retry: 'Try again',
+    days: { sun: 'Sunday', mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday' },
+  },
   contact: {
     addressLabel: 'Address',
     hoursLabel: 'Opening hours',
@@ -1281,6 +1313,17 @@ const es: Dictionary = {
       'Le rogamos nos disculpe: la conexión se ha interrumpido. Inténtelo de nuevo en unos instantes.',
     ledgerTitle: 'Sus reservas',
     guestsUnit: 'personas',
+  },
+  availability: {
+    eyebrow: 'Plazas libres',
+    title: 'Cuántos sitios quedan cada noche.',
+    intro:
+      'La sala acoge a cincuenta comensales en un único turno. Estas cifras siguen las reservas en directo, tanto las hechas por teléfono como las de esta página.',
+    seatsFree: 'plazas libres',
+    full: 'Completo',
+    error: 'No se ha podido consultar la disponibilidad.',
+    retry: 'Reintentar',
+    days: { sun: 'Domingo', mon: 'Lunes', tue: 'Martes', wed: 'Miércoles', thu: 'Jueves', fri: 'Viernes', sat: 'Sábado' },
   },
   contact: {
     addressLabel: 'Dirección',

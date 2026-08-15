@@ -46,7 +46,16 @@ async function redis(command: readonly (string | number)[]): Promise<unknown> {
   return payload.result;
 }
 
-const slotKey = (date: string) => `episteme:seats:${date}`;
+/**
+ * The seat counter for an evening.
+ *
+ * Deliberately the SAME key the website's booking engine uses. They were
+ * separate — `seats:` here, `booked:` there — which meant the two channels kept
+ * independent tallies of one fifty-seat room: a table taken by phone left the
+ * website still offering all fifty, and the room could be sold twice over.
+ * There is one room, so there is one counter.
+ */
+const slotKey = (date: string) => `episteme:booked:${date}`;
 const bookingKey = (code: string) => `episteme:booking:${code}`;
 
 /**

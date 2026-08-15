@@ -4,6 +4,7 @@ import LocationGallery from '@/components/LocationGallery';
 import TeamSection from '@/components/TeamSection';
 import MenuSection from '@/components/MenuSection';
 import WineCultureSection from '@/components/WineCultureSection';
+import AvailabilityCalendar from '@/components/AvailabilityCalendar';
 import ReservationSection from '@/components/ReservationSection';
 import ContactSection from '@/components/ContactSection';
 import Footer from '@/components/Footer';
@@ -19,6 +20,7 @@ export default function Home() {
         <TeamSection />
         <MenuSection />
         <WineCultureSection />
+        <AvailabilityCalendar />
         <ReservationSection />
         <ContactSection />
       </main>
