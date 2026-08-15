@@ -10,6 +10,7 @@
 
 import { bookTable, cancelBooking, checkAvailability, normalizeCode } from './booking.js';
 import { RESTAURANT, isLang, type Lang } from './config.js';
+import { isUsablePhone, normalizeDictatedPhone } from './phone.js';
 import { spokenCode } from './spoken.js';
 
 export type ToolSchema = {
@@ -47,9 +48,10 @@ export const TOOL_SCHEMAS: readonly ToolSchema[] = [
       name: 'book_table',
       description:
         'Commit a reservation and mint its confirmation code. Only call this after check_availability ' +
-        'reported a free table and the guest confirmed their name. The phone number is supplied by the ' +
-        'system from caller ID — never ask for it and never pass one. The result carries spoken_code: ' +
-        'say those words exactly, and never read the raw code instead.',
+        'reported a free table and the guest confirmed their name. Normally the phone number comes from ' +
+        'caller ID and you must not ask for it or pass one. Only when the system has told you the ' +
+        "caller's number is withheld do you ask for it and pass it as phone. The result carries " +
+        'spoken_code: say those words exactly, and never read the raw code instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -57,6 +59,12 @@ export const TOOL_SCHEMAS: readonly ToolSchema[] = [
           date: { type: 'string', description: 'Calendar date, strictly YYYY-MM-DD.' },
           time: { type: 'string', description: 'Seating time, strictly 24-hour HH:MM.' },
           guests: { type: 'integer', description: 'Number of people in the party.' },
+          phone: {
+            type: 'string',
+            description:
+              'Only when caller ID is withheld: the number the guest read out, digits as spoken. ' +
+              'Never send this when the system already has the number.',
+          },
         },
         required: ['name', 'date', 'time', 'guests'],
         additionalProperties: false,
@@ -143,9 +151,18 @@ export async function dispatchTool(
         return { ...(await checkAvailability(String(args.date ?? ''), String(args.time ?? ''), asInt(args.guests))) };
 
       case 'book_table': {
+        // Caller ID wins whenever we have it: it is exact, whereas a dictated
+        // number has passed through speech recognition. The dictated value is
+        // only ever a fallback for a withheld caller ID.
+        const dictated = normalizeDictatedPhone(
+          String(args.phone ?? ''),
+          RESTAURANT.defaultCountryCode,
+        );
+        const phone = isUsablePhone(ctx.callerNumber) ? ctx.callerNumber : (dictated ?? '');
+
         const result = await bookTable({
           name: String(args.name ?? ''),
-          phone: ctx.callerNumber,
+          phone,
           date: String(args.date ?? ''),
           time: String(args.time ?? ''),
           guests: asInt(args.guests),

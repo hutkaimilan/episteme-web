@@ -16,6 +16,8 @@ export const RESTAURANT = {
   spokenName: 'Episztémé',
 
   timezone: 'Europe/Budapest',
+  /** Country code applied to a number a caller dictates in local trunk form. */
+  defaultCountryCode: '+36',
   address: 'Budapest, Kossuth Lajos tér 14.',
   contactEmail: 'epistemebudapest@gmail.com',
   /** Where the restaurant's own copy of each booking is sent. */

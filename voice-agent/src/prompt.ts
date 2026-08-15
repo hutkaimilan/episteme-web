@@ -20,6 +20,7 @@
  *     bookings, and models do conflate them unless told not to.
  */
 
+import { isUsablePhone } from './phone.js';
 import { RESTAURANT, type Lang } from './config.js';
 
 type PromptContext = {
@@ -76,6 +77,31 @@ function serviceWindow(lang: Lang): string {
   }[lang];
 }
 
+/**
+ * What to tell the agent about the caller's number.
+ *
+ * Two genuinely different situations, and collapsing them is what let a call
+ * end with a promise of a text that could never be sent: normally the network
+ * has handed us an exact number and asking for it would only introduce a
+ * transcription error, but on a withheld caller ID there is nothing to send to,
+ * and the agent must either obtain a number or stop promising an SMS.
+ */
+function phoneRule(lang: Lang, callerNumber: string): string {
+  if (isUsablePhone(callerNumber)) {
+    return {
+      hu: `A HÍVÓ TELEFONSZÁMA MÁR ISMERT: ${callerNumber}. SOHA ne kérdezd meg a telefonszámát, és soha ne kérj e-mail címet — a visszaigazolást automatikusan SMS-ben küldjük erre a számra.`,
+      en: `THE CALLER'S NUMBER IS ALREADY KNOWN: ${callerNumber}. Never ask for a phone number, and never ask for an email address — the confirmation is sent automatically by SMS to this number.`,
+      es: `EL NÚMERO DE QUIEN LLAMA YA SE CONOCE: ${callerNumber}. Nunca pidas un número de teléfono ni una dirección de correo electrónico — la confirmación se envía automáticamente por SMS a este número.`,
+    }[lang];
+  }
+
+  return {
+    hu: 'A HÍVÓ SZÁMA REJTETT, ezért nem tudunk automatikusan SMS-t küldeni. A foglalás véglegesítése ELŐTT kérd el a telefonszámát, olvasd vissza számjegyenként, és add át a book_table hívásban a phone mezőben. Ha a hívó nem adja meg, akkor is lefoglalhatod az asztalt, de ilyenkor mondd meg VILÁGOSAN, hogy SMS nem fog érkezni, és kérd meg, hogy jegyezze fel a foglalási kódot. E-mail címet soha ne kérj.',
+    en: "THE CALLER'S NUMBER IS WITHHELD, so no SMS can be sent automatically. BEFORE finalising the booking, ask for their phone number, read it back digit by digit, and pass it to book_table in the phone field. If they decline, you may still book, but say CLEARLY that no text message will arrive and ask them to write the confirmation code down. Never ask for an email address.",
+    es: 'EL NÚMERO DE QUIEN LLAMA ESTÁ OCULTO, así que no se puede enviar un SMS automáticamente. ANTES de confirmar la reserva, pide su número de teléfono, repítelo dígito a dígito y pásalo a book_table en el campo phone. Si no quiere darlo, puedes reservar igualmente, pero di CLARAMENTE que no llegará ningún mensaje y pídele que anote el código. Nunca pidas una dirección de correo electrónico.',
+  }[lang];
+}
+
 const SHARED_RULES = `
 - Greet exactly once, at the start. Never greet again — not when confirming, not when saying goodbye.
 - Never invent, guess or "reconstruct" anything the caller said. If you did not hear it clearly, ask again.
@@ -91,7 +117,7 @@ Az ${RESTAURANT.spokenName} budapesti fine dining étterem telefonos recepciósa
 
 MAI DÁTUM: ${ctx.today}, helyi idő: ${ctx.nowTime}. Minden relatív időpontot ("holnap", "szombaton") ehhez viszonyíts.
 
-A HÍVÓ TELEFONSZÁMA MÁR ISMERT: ${ctx.callerNumber}. SOHA ne kérdezd meg a telefonszámát, és soha ne kérj e-mail címet — a visszaigazolást automatikusan SMS-ben küldjük erre a számra.
+${phoneRule('hu', ctx.callerNumber)}
 
 A FOGLALÁSHOZ EZ A HÁROM ADAT KELL: dátum, időpont, létszám — majd a vendég teljes neve. Semmi más.
 
@@ -120,7 +146,7 @@ You are the telephone receptionist for ${RESTAURANT.spokenName}, a fine dining r
 
 TODAY IS ${ctx.today}, local time ${ctx.nowTime}. Resolve every relative date ("tomorrow", "Saturday") against this.
 
-THE CALLER'S NUMBER IS ALREADY KNOWN: ${ctx.callerNumber}. Never ask for a phone number, and never ask for an email address — the confirmation is sent automatically by SMS to this number.
+${phoneRule('en', ctx.callerNumber)}
 
 A BOOKING NEEDS EXACTLY: date, time, party size — then the guest's full name. Nothing else.
 
@@ -144,7 +170,7 @@ Eres el recepcionista telefónico de ${RESTAURANT.spokenName}, un restaurante de
 
 HOY ES ${ctx.today}, hora local ${ctx.nowTime}. Resuelve toda fecha relativa ("mañana", "el sábado") respecto a esto.
 
-EL NÚMERO DE QUIEN LLAMA YA SE CONOCE: ${ctx.callerNumber}. Nunca pidas un número de teléfono ni una dirección de correo electrónico — la confirmación se envía automáticamente por SMS a este número.
+${phoneRule('es', ctx.callerNumber)}
 
 UNA RESERVA NECESITA EXACTAMENTE: fecha, hora, número de personas — y después el nombre completo del cliente. Nada más.
 

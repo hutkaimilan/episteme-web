@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getEnv, smsConfigured } from './env.js';
 import { RESTAURANT, type Lang } from './config.js';
 import { toGsm7 } from './gsm7.js';
+import { isUsablePhone } from './phone.js';
 
 /**
  * Verify Twilio's X-Twilio-Signature over a form-encoded webhook.
@@ -63,6 +64,14 @@ export async function sendConfirmationSms(
   time: string,
   guests: number,
 ): Promise<boolean> {
+  if (!isUsablePhone(to)) {
+    // Reached when caller ID was withheld and the guest declined to give a
+    // number. Logged as a warning, not an error: the booking is valid and the
+    // caller was told no text would arrive.
+    console.warn('[SMS] no usable number for', code, '— confirmation not sent');
+    return false;
+  }
+
   if (!smsConfigured()) {
     console.warn('[SMS] not configured — skipping confirmation for', code);
     return false;
