@@ -54,6 +54,28 @@ function closedDays(lang: Lang): string {
   return { hu: `${names} zárva`, en: `closed on ${names}`, es: `cerrado los ${names}` }[lang];
 }
 
+/**
+ * Describe the service window the way the published hours read.
+ *
+ * Built from config rather than written out per language for the same reason
+ * the closing days are: three hand-maintained copies drift from the booking
+ * engine, and the agent then quotes hours it will refuse to book.
+ */
+function serviceWindow(lang: Lang): string {
+  const open = RESTAURANT.service.firstSeating;
+  const byDay = RESTAURANT.service.lastSeatingByWeekday;
+  const weekday = byDay[1] ?? '';
+  const weekend = byDay[6] ?? '';
+  if (weekday === weekend) {
+    return { hu: `${open}-${weekday}`, en: `${open}-${weekday}`, es: `${open}-${weekday}` }[lang];
+  }
+  return {
+    hu: `hétfőtől péntekig ${open}-${weekday}, szombaton és vasárnap ${open}-${weekend}`,
+    en: `Mon-Fri ${open}-${weekday}, Sat-Sun ${open}-${weekend}`,
+    es: `lun-vie ${open}-${weekday}, sab-dom ${open}-${weekend}`,
+  }[lang];
+}
+
 const SHARED_RULES = `
 - Greet exactly once, at the start. Never greet again — not when confirming, not when saying goodbye.
 - Never invent, guess or "reconstruct" anything the caller said. If you did not hear it clearly, ask again.
@@ -80,7 +102,7 @@ MENET:
 4. Hívd meg a book_table eszközt.
 5. Mondd el a foglalási kódot a book_table által visszaadott spoken_code szöveggel, szó szerint, majd köszönj el.
 
-NYITVATARTÁS: ${closedDays('hu')}. Asztalfoglalás ${RESTAURANT.service.firstSeating} és ${RESTAURANT.service.lastSeating} között, legfeljebb ${RESTAURANT.maxPartySize} főre.
+NYITVATARTÁS: ${closedDays('hu')}. Asztalfoglalás ${serviceWindow('hu')} között, legfeljebb ${RESTAURANT.maxPartySize} főre.
 
 SZABÁLYOK:
 - Egyszer köszönj, a hívás elején. Utána soha többé ne köszönj — sem visszaigazoláskor, sem búcsúzáskor.
@@ -109,7 +131,7 @@ SEQUENCE:
 4. Call the book_table tool.
 5. Read the confirmation code using the spoken_code text returned by book_table, verbatim, then close the call.
 
-OPENING: ${closedDays('en')}. Seatings between ${RESTAURANT.service.firstSeating} and ${RESTAURANT.service.lastSeating}, up to ${RESTAURANT.maxPartySize} guests.
+OPENING: ${closedDays('en')}. Seatings ${serviceWindow('en')}, up to ${RESTAURANT.maxPartySize} guests.
 
 RULES:
 ${SHARED_RULES}
@@ -133,7 +155,7 @@ SECUENCIA:
 4. Llama a la herramienta book_table.
 5. Di el código de confirmación despacio y despídete.
 
-HORARIO: ${closedDays('es')}. Reservas entre las ${RESTAURANT.service.firstSeating} y las ${RESTAURANT.service.lastSeating}, hasta ${RESTAURANT.maxPartySize} personas.
+HORARIO: ${closedDays('es')}. Reservas ${serviceWindow('es')}, hasta ${RESTAURANT.maxPartySize} personas.
 
 REGLAS:
 - Saluda una sola vez, al principio. Nunca vuelvas a saludar — ni al confirmar ni al despedirte.

@@ -43,6 +43,33 @@ function weekdayOf(date: string): number {
   return new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay();
 }
 
+/**
+ * Minutes from the start of service.
+ *
+ * An evening opens at 20:00 and runs past midnight, so 00:00 is later than
+ * 23:00 here even though it sorts earlier as text. Comparing the clock strings
+ * directly — as this did — placed a midnight seating before opening time and
+ * refused it outright.
+ */
+function minutesFromServiceStart(time: string): number {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  const start = toMinutes(RESTAURANT.service.firstSeating);
+  // Anything before noon is the small hours of the evening that already began.
+  const absolute = h < 12 ? (h + 24) * 60 + m : h * 60 + m;
+  return absolute - start;
+}
+
+function toMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  return h * 60 + m;
+}
+
+/** The last seating for the evening of `date`, as HH:MM. */
+export function lastSeatingFor(date: string): string {
+  const byDay = RESTAURANT.service.lastSeatingByWeekday;
+  return byDay[weekdayOf(date)] ?? byDay[1] ?? '23:00';
+}
+
 function daysBetween(from: string, to: string): number {
   const [fy, fm, fd] = from.split('-').map(Number);
   const [ty, tm, td] = to.split('-').map(Number);
@@ -84,7 +111,8 @@ export function validateSlot(
     return { ok: false, reason: 'closed_that_day' };
   }
 
-  if (time < RESTAURANT.service.firstSeating || time > RESTAURANT.service.lastSeating) {
+  const offsetFromOpen = minutesFromServiceStart(time);
+  if (offsetFromOpen < 0 || offsetFromOpen > minutesFromServiceStart(lastSeatingFor(date))) {
     return { ok: false, reason: 'outside_service_hours' };
   }
 

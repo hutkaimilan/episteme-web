@@ -23,13 +23,23 @@ export const RESTAURANT = {
 
   /** Seats released to the voice channel per service. */
   capacityPerNight: 50,
-  /** Largest party the agent may commit without human approval. */
-  maxPartySize: 20,
+  /**
+   * Largest party a single booking may hold. The floor seats fifty and takes
+   * one sitting a night, so a party can legitimately be the whole room — the
+   * website's booking engine accepts up to capacity, and a lower ceiling here
+   * meant the agent turned away large groups the site would have booked.
+   */
+  maxPartySize: 50,
 
   /** Service window, local time, 24h. Bookings outside this are refused. */
   service: {
     firstSeating: '20:00',
-    lastSeating: '22:00',
+    /**
+     * Last seating per weekday (0 = Sunday), an hour before the doors close:
+     * Mon–Fri close at 00:00, Sat–Sun at 01:00. A midnight seating belongs to
+     * the evening that opened at 20:00, not to the calendar day it falls in.
+     */
+    lastSeatingByWeekday: ['00:00', '23:00', '23:00', '23:00', '23:00', '23:00', '00:00'] as readonly string[],
   },
 
   /**

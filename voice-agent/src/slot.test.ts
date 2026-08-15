@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateSlot, todayLocal, nowLocalTime } from './slot.js';
+import { validateSlot, todayLocal, nowLocalTime, lastSeatingFor } from './slot.js';
 import { normalizeCode } from './booking.js';
 import { isLang, RESTAURANT, SUPPORTED_LANGS, LANG_TAGS } from './config.js';
 
@@ -68,7 +68,7 @@ test('a closing day is refused, and a day that is not one is not', () => {
 
 test('times outside the service window are refused at both ends', () => {
   const minuteBefore = shiftMinutes(RESTAURANT.service.firstSeating, -1);
-  const minuteAfter = shiftMinutes(RESTAURANT.service.lastSeating, 1);
+  const minuteAfter = shiftMinutes(lastSeatingFor('2026-08-07'), 1);
   assert.deepEqual(validateSlot('2026-08-07', minuteBefore, 2, NOW), {
     ok: false,
     reason: 'outside_service_hours',
@@ -81,7 +81,7 @@ test('times outside the service window are refused at both ends', () => {
 
 test('service window boundaries themselves are accepted', () => {
   assert.deepEqual(validateSlot('2026-08-07', RESTAURANT.service.firstSeating, 2, NOW), { ok: true });
-  assert.deepEqual(validateSlot('2026-08-07', RESTAURANT.service.lastSeating, 2, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-07', lastSeatingFor('2026-08-07'), 2, NOW), { ok: true });
 });
 
 test('malformed dates and times are refused rather than coerced', () => {
@@ -94,10 +94,13 @@ test('malformed dates and times are refused rather than coerced', () => {
 });
 
 test('party size bounds are enforced', () => {
+  // Bounds come from config: the ceiling is a business figure, while "a party
+  // outside the bounds is refused" is the rule this exercises.
+  const max = RESTAURANT.maxPartySize;
   assert.deepEqual(validateSlot('2026-08-07', '20:00', 0, NOW), { ok: false, reason: 'party_too_small' });
-  assert.deepEqual(validateSlot('2026-08-07', '20:00', 21, NOW), { ok: false, reason: 'party_too_large' });
+  assert.deepEqual(validateSlot('2026-08-07', '20:00', max + 1, NOW), { ok: false, reason: 'party_too_large' });
   assert.deepEqual(validateSlot('2026-08-07', '20:00', 2.5, NOW), { ok: false, reason: 'party_too_small' });
-  assert.deepEqual(validateSlot('2026-08-07', '20:00', 20, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-07', '20:00', max, NOW), { ok: true });
 });
 
 test('normalizeCode survives the shapes speech recognition produces', () => {
@@ -118,4 +121,31 @@ test('every supported language has a relay tag and passes the guard', () => {
   }
   assert.equal(isLang('de'), false);
   assert.equal(isLang(null), false);
+});
+
+test('a Friday evening runs to 23:00 and refuses midnight', () => {
+  // 2026-08-07 is a Friday: doors close at 00:00, so the last seating is 23:00.
+  assert.deepEqual(validateSlot('2026-08-07', '23:00', 2, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-07', '00:00', 2, NOW), {
+    ok: false,
+    reason: 'outside_service_hours',
+  });
+});
+
+test('a Saturday evening runs past midnight, which sorts earlier as text', () => {
+  // 2026-08-08 is a Saturday: doors close at 01:00, last seating 00:00. A naive
+  // string comparison puts '00:00' before opening time and refuses it.
+  assert.deepEqual(validateSlot('2026-08-08', '00:00', 2, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-08', '00:30', 2, NOW), {
+    ok: false,
+    reason: 'outside_service_hours',
+  });
+});
+
+test('a party may fill the whole room, as the website allows', () => {
+  assert.deepEqual(validateSlot('2026-08-07', '20:00', RESTAURANT.capacityPerNight, NOW), { ok: true });
+  assert.deepEqual(validateSlot('2026-08-07', '20:00', RESTAURANT.capacityPerNight + 1, NOW), {
+    ok: false,
+    reason: 'party_too_large',
+  });
 });
