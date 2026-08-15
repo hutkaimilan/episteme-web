@@ -275,3 +275,36 @@ test('callGroqApi: the API key never leaks into thrown/logged text even inside a
   assert.ok(!allLogged.includes('secret-test-key-12345'), 'API key leaked into logs');
   assert.ok(allLogged.includes('[REDACTED_KEY]'), 'expected redaction marker in logs');
 });
+
+test('callGroqApi: the TOTAL time spent waiting out rate limits is bounded', async () => {
+  // Each wait was already capped on its own, but three in sequence could hold a
+  // guest for the better part of a minute — long enough that they assume the
+  // page has hung and reload, losing the conversation. Groq asks for 15s every
+  // time here: the first wait fits the 20s budget, a second would breach it, so
+  // the call gives up rather than keep them waiting.
+  const waits: number[] = [];
+  let callCount = 0;
+  const mockFetch: typeof fetch = async () => {
+    callCount++;
+    return jsonResponse(429, { error: { message: 'rate limited, try again in 15s' } });
+  };
+
+  await assert.rejects(
+    () =>
+      withMockFetch(mockFetch, () =>
+        callGroqApi(
+          { url: 'http://mock/chat', apiKey: 'test-key', model: 'test-model', maxTokens: 100 },
+          'system',
+          [{ role: 'user', content: 'hi' }],
+          async (ms: number) => {
+            waits.push(ms);
+          },
+        ),
+      ),
+    /Groq API error 429/,
+  );
+
+  assert.equal(waits.length, 1, 'only the wait that fits inside the budget is taken');
+  assert.ok(waits.reduce((a, b) => a + b, 0) <= 20_000, 'total wait stays within budget');
+  assert.equal(callCount, 2, 'one initial call plus one retry');
+});

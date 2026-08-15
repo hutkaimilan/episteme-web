@@ -84,6 +84,17 @@ export async function callGroqApi(
     });
 
   const MAX_429_ATTEMPTS = 3;
+  /**
+   * Ceiling on the TOTAL time spent waiting out rate limits, across all
+   * attempts. Each individual wait was already capped, but three of them in
+   * sequence could keep a guest staring at a typing indicator for the better
+   * part of a minute — long enough that they assume the page is broken and
+   * reload, which costs the conversation. Better to reach the fallback, which
+   * still reports the booking, while they are still reading.
+   */
+  const MAX_TOTAL_RETRY_WAIT_MS = 20_000;
+  let spentWaitingMs = 0;
+
   let res: Response;
   let attempt = 1;
   try {
@@ -103,12 +114,21 @@ export async function callGroqApi(
       console.error('[GROQ_ERROR] Groq 429 rate limit with no parseable wait time; not retrying:', redactKey(bodyText.slice(0, 500), apiKey));
       throw new Error('Groq API error 429');
     }
+    if (spentWaitingMs + delayMs > MAX_TOTAL_RETRY_WAIT_MS) {
+      console.error(
+        `[GROQ_ERROR] Groq 429 rate limit; a further ${delayMs}ms wait would exceed the ${MAX_TOTAL_RETRY_WAIT_MS}ms retry budget, giving up:`,
+        redactKey(bodyText.slice(0, 500), apiKey),
+      );
+      throw new Error('Groq API error 429');
+    }
+
     attempt++;
     console.error(
       `[GROQ_ERROR] Groq 429 rate limit; retrying (attempt ${attempt}/${MAX_429_ATTEMPTS}) after ${delayMs}ms:`,
       redactKey(bodyText.slice(0, 500), apiKey),
     );
     await sleepFn(delayMs);
+    spentWaitingMs += delayMs;
     try {
       res = await doFetch();
     } catch (err) {

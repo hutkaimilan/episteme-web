@@ -23,20 +23,30 @@ import { callGroqApi } from '@/lib/groqClient';
 // (Vercel clamps this to whatever the plan allows).
 export const maxDuration = 60;
 
-// Hardcoded (not env-driven) as of 2026-08-03: today's incidents (gpt-oss-20b
-// reasoning-model output_parse_failed stalls, then TPM exhaustion from the
-// resulting retries) trace back to the Vercel GROQ_MODEL env var being set to
-// openai/gpt-oss-20b. Overriding it here rather than depending on that env var
-// being fixed in the dashboard, since gpt-oss's reasoning-token overhead is a
-// poor fit for this single-shot strict-JSON tool-calling design regardless of
-// its TPM budget. llama-3.3-70b-versatile is not a reasoning model (no
-// output_parse_failed risk) and has a materially larger free-tier TPM window.
-// Valid until Groq's Aug 16, 2026 deprecation shutdown -- re-evaluate before then.
-const MODEL = 'llama-3.3-70b-versatile';
+// Hardcoded rather than env-driven, deliberately: an August 2026 outage was
+// caused by the Vercel GROQ_MODEL var pointing at a model this design cannot
+// use, and the fix has to live where the constraint is documented.
+//
+// Migrated off llama-3.3-70b-versatile on 2026-08-15, the day before Groq shut
+// it down. Its wind-down was already visible as escalating 429s, which the
+// retry path turned into multi-second waits for the guest.
+//
+// gpt-oss-120b is Groq's recommended replacement, but it IS a reasoning model,
+// and the earlier incident with gpt-oss-20b was precisely that reasoning tokens
+// consumed the completion budget and the model stalled before emitting its
+// JSON (output_parse_failed). Two mitigations, both required: reasoning_effort
+// is pinned to 'low' below, and MAX_TOKENS is raised well clear of the budget
+// where 20b used to stall, since reasoning tokens are drawn from that same
+// allowance. The alternative, qwen/qwen3.6-27b, avoids reasoning overhead
+// entirely and is the fallback if stalls reappear.
+const MODEL = 'openai/gpt-oss-120b';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
-const MAX_TOKENS = 800;
+// Raised from 800 with the move to a reasoning model: the visible answer is
+// still short, but reasoning tokens are billed against this same ceiling, and
+// 800 is the budget at which gpt-oss-20b used to stall before emitting JSON.
+const MAX_TOKENS = 2000;
 
 // Full history is resent to the model on every call (needed — earlier
 // attempts at summarising/truncating it caused the model to lose the guest's
