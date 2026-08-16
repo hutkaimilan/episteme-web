@@ -246,3 +246,48 @@ test('an HTTP failure from the provider surfaces as a rejection', async () => {
     /LLM HTTP 429/,
   );
 });
+
+test('an interrupt stops tokens reaching the caller mid-reply', async () => {
+  // The relay stops playing the audio it already holds, but tokens sent after
+  // that point are spoken as fresh audio — which is how the agent ended up
+  // talking straight over a caller who had just cut in. Generation has to stop,
+  // not merely playback.
+  const frames = Array.from({ length: 12 }, (_, i) => textDelta(`szó${i} `));
+  globalThis.fetch = (async () => sse(frames)) as typeof fetch;
+
+  const abort = new AbortController();
+  const spoken: string[] = [];
+
+  await assert.rejects(
+    () =>
+      runTurn(
+        [{ role: 'user', content: 'mikorra tudok foglalni' }],
+        baseContext(),
+        (token) => {
+          spoken.push(token);
+          if (spoken.length === 2) abort.abort(); // The caller starts talking.
+        },
+        abort.signal,
+      ),
+    (error: Error) => error.name === 'TurnAbortedError',
+  );
+
+  assert.equal(spoken.length, 2, 'nothing is spoken after the caller cuts in');
+});
+
+test('a turn aborted before it starts never reaches the provider', async () => {
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    return sse([textDelta('hello')]);
+  }) as typeof fetch;
+
+  const abort = new AbortController();
+  abort.abort();
+
+  await assert.rejects(
+    () => runTurn([{ role: 'user', content: 'hi' }], baseContext(), () => {}, abort.signal),
+    (error: Error) => error.name === 'TurnAbortedError',
+  );
+  assert.equal(called, false, 'no request is issued for a turn already abandoned');
+});

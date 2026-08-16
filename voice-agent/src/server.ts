@@ -19,7 +19,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { assertEnv, getEnv } from './env.js';
 import { LANG_TAGS, RESTAURANT, isLang, type Lang } from './config.js';
 import { FAILURE_MESSAGE, GREETING, systemPrompt } from './prompt.js';
-import { runTurn, type ChatMessage } from './llm.js';
+import { runTurn, TurnAbortedError, type ChatMessage } from './llm.js';
 import { nowLocalTime, todayLocal } from './slot.js';
 import { sendCancellationSms, sendConfirmationSms, verifyTwilioSignature } from './twilio.js';
 import { smsConfigured } from './env.js';
@@ -124,6 +124,8 @@ type Session = {
   messages: ChatMessage[];
   /** Guards against overlapping turns if the caller talks over a reply. */
   busy: boolean;
+  /** Aborts the turn in flight when the caller talks over it. */
+  turnAbort: AbortController | null;
   /**
    * Words spoken while a turn was already running. Never dropped: callers talk
    * over the agent precisely when they are supplying the detail it just asked
@@ -195,6 +197,9 @@ function repairDanglingToolCalls(messages: ChatMessage[]): void {
 async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Promise<void> {
   active.messages.push({ role: 'user', content: utterance });
 
+  const abort = new AbortController();
+  active.turnAbort = abort;
+
   // Held until the turn ends: the booking is committed inside the tool call,
   // but the caller should hear the code before their phone buzzes.
   let booked: { name: string; code: string; date: string; time: string; guests: number } | null = null;
@@ -230,13 +235,24 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
         spokeAnything = true;
         speak(ws, token, false);
       },
+      abort.signal,
     );
     speak(ws, '', true);
   } catch (error) {
+    if (error instanceof TurnAbortedError) {
+      // Not a failure. The caller is already talking; an apology here would be
+      // the agent interrupting them in turn. Their words are queued and
+      // answered next.
+      console.log('[WS] turn abandoned mid-reply on', active.callSid);
+      speak(ws, '', true);
+      return;
+    }
     console.error('[WS] turn failed on', active.callSid, error);
     repairDanglingToolCalls(active.messages);
     if (spokeAnything) speak(ws, '', true);
     speak(ws, FAILURE_MESSAGE[active.lang], true);
+  } finally {
+    if (active.turnAbort === abort) active.turnAbort = null;
   }
 
   if (booked) {
@@ -280,6 +296,7 @@ wss.on('connection', (ws: WebSocket) => {
             lang: DEFAULT_LANG,
             messages: [],
             busy: false,
+            turnAbort: null,
             queue: [],
           };
           applySystemPrompt(session);
@@ -322,11 +339,23 @@ wss.on('connection', (ws: WebSocket) => {
           return;
         }
 
-        case 'interrupt':
-          // ConversationRelay has already stopped playback; nothing to undo
-          // here, but the transcript is worth keeping for tuning.
-          console.log('[WS] caller interrupted:', message.utteranceUntilInterrupt);
+        case 'interrupt': {
+          // ConversationRelay stops playing the audio it already holds, but the
+          // turn behind it keeps generating, and every token sent afterwards is
+          // spoken as fresh audio — so the agent talks straight over a caller
+          // who has just cut in. Stop the turn as well as the playback.
+          const spoken = String(message.utteranceUntilInterrupt ?? '').trim();
+          console.log('[WS] caller interrupted:', spoken);
+          if (!session) return;
+
+          session.turnAbort?.abort();
+
+          // Record only what the caller actually heard. Keeping the full
+          // generated reply would leave the agent believing it had said things
+          // that were never played, and repeating itself accordingly.
+          if (spoken) session.messages.push({ role: 'assistant', content: spoken });
           return;
+        }
 
         case 'dtmf':
           console.log('[WS] keypad digit:', message.digit);

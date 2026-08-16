@@ -36,6 +36,14 @@ const REQUEST_TIMEOUT_MS = 12_000;
  */
 const MAX_TOOL_ROUNDS = 3;
 
+/** Thrown when the caller talks over the reply. Not a failure — no apology. */
+export class TurnAbortedError extends Error {
+  constructor() {
+    super('Turn aborted because the caller interrupted');
+    this.name = 'TurnAbortedError';
+  }
+}
+
 async function requestCompletion(
   messages: ChatMessage[],
   signal: AbortSignal,
@@ -202,16 +210,28 @@ export async function runTurn(
   messages: ChatMessage[],
   ctx: ToolContext,
   onToken: (token: string) => void,
+  /**
+   * Aborted when the caller starts speaking over the reply. Generation stops
+   * immediately: tokens produced after that point would be sent to the relay
+   * and spoken as fresh audio, so the agent carries on talking at someone who
+   * has already interrupted it.
+   */
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   const turnStarted = Date.now();
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    if (abortSignal?.aborted) throw new TurnAbortedError();
     if (Date.now() - turnStarted > TURN_DEADLINE_MS) {
       throw new Error(`Turn exceeded ${TURN_DEADLINE_MS}ms budget`);
     }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    // Linked so an interrupt also tears down the HTTP request, rather than
+    // leaving the provider generating tokens nobody will ever hear.
+    const onAbort = () => controller.abort();
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
 
     let outcome: StreamOutcome;
     try {
@@ -220,9 +240,15 @@ export async function runTurn(
       // appears, then stops. In practice providers emit tool calls before any
       // prose, so a genuine answer streams from its first token while a tool
       // round stays silent.
-      outcome = await consumeStream(response, (token) => onToken(token));
+      outcome = await consumeStream(response, (token) => {
+        // Checked per token, not just per round: an interrupt lands mid-stream,
+        // and every token forwarded after it is spoken as new audio.
+        if (abortSignal?.aborted) throw new TurnAbortedError();
+        onToken(token);
+      });
     } finally {
       clearTimeout(timer);
+      abortSignal?.removeEventListener('abort', onAbort);
     }
 
     if (outcome.toolCalls.length === 0) {
