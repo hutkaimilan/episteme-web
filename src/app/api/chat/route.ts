@@ -31,22 +31,19 @@ export const maxDuration = 60;
 // it down. Its wind-down was already visible as escalating 429s, which the
 // retry path turned into multi-second waits for the guest.
 //
-// Constrained by the org's Allowed Models list, not by what suits this design.
-// Both of Groq's recommended replacements for the model retired today are
-// blocked at organisation level and return 403 (permissions_error), so the only
-// entitled option left is gpt-oss-20b.
+// Replaces llama-3.3-70b-versatile, which Groq retired on 2026-08-16.
 //
-// That is the model behind the August incident: it is a reasoning model, and
-// its reasoning tokens exhausted the completion budget before it emitted the
-// JSON this single-shot tool-calling design requires (output_parse_failed).
-// Two things are different now, and both are what made it fail then:
-// reasoning_effort is pinned to 'low', and MAX_TOKENS is 2000 rather than the
-// 800 it used to stall inside.
+// Chosen over the other recommended replacement, openai/gpt-oss-120b, because
+// this is a single-shot strict-JSON tool-calling design and gpt-oss models are
+// reasoning models: the August incident was gpt-oss-20b spending its completion
+// budget on reasoning tokens and stalling before it emitted any JSON at all
+// (output_parse_failed). qwen3.6-27b carries no such overhead.
 //
-// This is a fallback, not a destination. Enabling qwen/qwen3.6-27b under
-// Allowed Models at console.groq.com/settings/limits removes the reasoning
-// overhead entirely and is the model to return to.
-const MODEL = 'openai/gpt-oss-20b';
+// Both replacements are also gated by the org's Allowed Models list, and a
+// model missing from it returns 403 permissions_error rather than anything
+// resembling a model problem. If this starts 403ing, check
+// console.groq.com/settings/limits before touching the model name.
+const MODEL = 'qwen/qwen3.6-27b';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
