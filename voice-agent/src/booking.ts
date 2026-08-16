@@ -92,7 +92,17 @@ export type CancelResult =
 export async function cancelBooking(code: string): Promise<CancelResult> {
   const normalized = normalizeCode(code);
   const record = await loadBooking(normalized);
-  if (!record || !record.code) return { success: false, reason: 'unknown_code' };
+  if (!record) return { success: false, reason: 'unknown_code' };
+
+  // A record written by the website carries no `code` field — the code is the
+  // key it was stored under, not part of the value. Requiring it here meant a
+  // guest who booked on the site and rang up to cancel was told their code did
+  // not exist. The lookup already proves it does, so the normalised code is
+  // used and the stored one is only a fallback.
+  const resolvedCode = record.code || normalized;
+  // An unclaimed reservation is the empty placeholder claimCode writes; a
+  // booking always has a date.
+  if (!record.date) return { success: false, reason: 'unknown_code' };
 
   // A cancelled booking is kept with its seats zeroed rather than deleted, so
   // the code still resolves if the guest calls back about it. Cancelling twice
@@ -105,7 +115,7 @@ export async function cancelBooking(code: string): Promise<CancelResult> {
   await saveBooking({ ...record, guests: 0 });
   return {
     success: true,
-    code: record.code,
+    code: resolvedCode,
     name: record.name,
     phone: record.phone,
     date: record.date,
