@@ -31,21 +31,26 @@ export const maxDuration = 60;
 // it down. Its wind-down was already visible as escalating 429s, which the
 // retry path turned into multi-second waits for the guest.
 //
-// gpt-oss-120b is Groq's recommended replacement, but it IS a reasoning model,
-// and the earlier incident with gpt-oss-20b was precisely that reasoning tokens
-// consumed the completion budget and the model stalled before emitting its
-// JSON (output_parse_failed). Two mitigations, both required: reasoning_effort
-// is pinned to 'low' below, and MAX_TOKENS is raised well clear of the budget
-// where 20b used to stall, since reasoning tokens are drawn from that same
-// allowance. The alternative, qwen/qwen3.6-27b, avoids reasoning overhead
-// entirely and is the fallback if stalls reappear.
-const MODEL = 'openai/gpt-oss-120b';
+// Groq names two replacements. gpt-oss-120b was tried first and returned 403
+// Forbidden on every call: this account is not entitled to it, which is a
+// permission on the plan and not something the code can retry its way out of.
+//
+// qwen3.6-27b is the other recommendation, and the better fit anyway. The
+// August incident was a reasoning model (gpt-oss-20b) spending its completion
+// budget on reasoning tokens and stalling before it emitted any JSON, and this
+// is a single-shot strict-JSON tool-calling design with no room for that.
+//
+// If this one is ever refused too, check entitlements in the Groq console
+// before swapping models again — a 403 is an account problem wearing a
+// model-shaped disguise.
+const MODEL = 'qwen/qwen3.6-27b';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
-// Raised from 800 with the move to a reasoning model: the visible answer is
-// still short, but reasoning tokens are billed against this same ceiling, and
-// 800 is the budget at which gpt-oss-20b used to stall before emitting JSON.
+// 800 was the ceiling under llama-3.3-70b and was never the constraint there.
+// Kept at the raised figure regardless: the visible reply is short either way,
+// unused completion tokens are not billed, and headroom is what the previous
+// model ran out of.
 const MAX_TOKENS = 2000;
 
 // Full history is resent to the model on every call (needed — earlier
