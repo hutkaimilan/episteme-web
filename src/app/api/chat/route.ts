@@ -31,19 +31,22 @@ export const maxDuration = 60;
 // it down. Its wind-down was already visible as escalating 429s, which the
 // retry path turned into multi-second waits for the guest.
 //
-// Groq names two replacements. gpt-oss-120b was tried first and returned 403
-// Forbidden on every call: this account is not entitled to it, which is a
-// permission on the plan and not something the code can retry its way out of.
+// Constrained by the org's Allowed Models list, not by what suits this design.
+// Both of Groq's recommended replacements for the model retired today are
+// blocked at organisation level and return 403 (permissions_error), so the only
+// entitled option left is gpt-oss-20b.
 //
-// qwen3.6-27b is the other recommendation, and the better fit anyway. The
-// August incident was a reasoning model (gpt-oss-20b) spending its completion
-// budget on reasoning tokens and stalling before it emitted any JSON, and this
-// is a single-shot strict-JSON tool-calling design with no room for that.
+// That is the model behind the August incident: it is a reasoning model, and
+// its reasoning tokens exhausted the completion budget before it emitted the
+// JSON this single-shot tool-calling design requires (output_parse_failed).
+// Two things are different now, and both are what made it fail then:
+// reasoning_effort is pinned to 'low', and MAX_TOKENS is 2000 rather than the
+// 800 it used to stall inside.
 //
-// If this one is ever refused too, check entitlements in the Groq console
-// before swapping models again — a 403 is an account problem wearing a
-// model-shaped disguise.
-const MODEL = 'qwen/qwen3.6-27b';
+// This is a fallback, not a destination. Enabling qwen/qwen3.6-27b under
+// Allowed Models at console.groq.com/settings/limits removes the reasoning
+// overhead entirely and is the model to return to.
+const MODEL = 'openai/gpt-oss-20b';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
