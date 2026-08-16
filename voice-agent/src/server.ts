@@ -59,6 +59,9 @@ function twiml(): string {
       ttsProvider="ElevenLabs"
       welcomeGreeting="${escapeXml(GREETING[DEFAULT_LANG])}"
       interruptible="true"
+      interruptSensitivity="medium"
+      speechTimeout="1400"
+      ignoreBackchannel="true"
       dtmfDetection="true" />
   </Connect>
 </Response>`;
