@@ -102,6 +102,45 @@ function phoneRule(lang: Lang, callerNumber: string): string {
   }[lang];
 }
 
+/**
+ * When the doors are open, as opposed to when a table can be booked.
+ *
+ * A caller asking "how late are you open" wants the closing time, but a
+ * reservation cannot be taken right up to it — the last seating is an hour
+ * earlier, which is the figure serviceWindow() reports. Quoting only one of the
+ * two either turns away a caller who wanted a late table or promises a seating
+ * that will be refused, so both are stated.
+ *
+ * Closing is derived from the last seating rather than configured separately:
+ * two fields would drift, and the hour between them is the policy config
+ * already documents.
+ */
+function closingAfter(lastSeating: string): string {
+  const [h, m] = lastSeating.split(':').map(Number) as [number, number];
+  return `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function openingHours(lang: Lang): string {
+  const open = RESTAURANT.service.firstSeating;
+  const byDay = RESTAURANT.service.lastSeatingByWeekday;
+  const weekday = closingAfter(byDay[1] ?? '23:00');
+  const weekend = closingAfter(byDay[6] ?? '00:00');
+
+  if (weekday === weekend) {
+    return {
+      hu: `minden nap ${open} és ${weekday} között`,
+      en: `every day from ${open} to ${weekday}`,
+      es: `todos los días de ${open} a ${weekday}`,
+    }[lang];
+  }
+
+  return {
+    hu: `hétfőtől péntekig ${open} és ${weekday} között, szombaton és vasárnap ${open} és ${weekend} között`,
+    en: `Monday to Friday from ${open} to ${weekday}, Saturday and Sunday from ${open} to ${weekend}`,
+    es: `de lunes a viernes de ${open} a ${weekday}, sábados y domingos de ${open} a ${weekend}`,
+  }[lang];
+}
+
 const SHARED_RULES = `
 - Greet exactly once, at the start. Never greet again — not when confirming, not when saying goodbye.
 - Never invent, guess or "reconstruct" anything the caller said. If you did not hear it clearly, ask again.
@@ -130,7 +169,7 @@ LEMONDÁS MENETE (ha a hívó lemondani szeretne):
 5. Ha already_cancelled: mondd el, hogy ez a foglalás korábban már lemondásra került, tehát most nincs fenntartva asztal. NE mondd azt, hogy most szabadítottad fel.
 
 FOGLALÁS MENETE:
-1. Kérdezd meg a dátumot, időpontot és létszámot.
+1. Amint kiderül, hogy asztalt szeretne foglalni, ELŐSZÖR mondd el a nyitvatartást: nyitva vagyunk ${openingHours('hu')}, asztalt ${serviceWindow('hu')} között lehet foglalni. Csak ezután kérdezd meg a dátumot, időpontot és létszámot. Ezt egyszer mondd el, a hívás elején — ne ismételd meg minden válaszban.
 2. Hívd meg a check_availability eszközt.
 3. Ha van hely, kérdezd meg a vendég teljes nevét, és olvasd vissza megerősítésre.
 4. Hívd meg a book_table eszközt.
@@ -166,7 +205,7 @@ CANCELLATION SEQUENCE (when the caller wants to cancel):
 5. On already_cancelled: say it was cancelled earlier and no table is being held. Do NOT claim you have just released it.
 
 BOOKING SEQUENCE:
-1. Ask for the date, time and party size.
+1. As soon as it is clear they want a table, FIRST state the hours: we are open ${openingHours('en')}, and tables can be booked ${serviceWindow('en')}. Only then ask for the date, time and party size. Say this once, early — do not repeat it in every reply.
 2. Call the check_availability tool.
 3. If a table is free, ask for the guest's full name and read it back for confirmation.
 4. Call the book_table tool.
@@ -197,7 +236,7 @@ SECUENCIA DE CANCELACIÓN (si quien llama quiere cancelar):
 5. Si devuelve already_cancelled: di que ya se canceló antes y que no hay mesa reservada.
 
 SECUENCIA DE RESERVA:
-1. Pregunta la fecha, la hora y el número de personas.
+1. En cuanto quede claro que quieren mesa, di PRIMERO el horario: abrimos ${openingHours('es')}, y se puede reservar ${serviceWindow('es')}. Solo después pregunta la fecha, la hora y el número de personas. Dilo una vez, al principio, sin repetirlo en cada respuesta.
 2. Llama a la herramienta check_availability.
 3. Si hay mesa, pide el nombre completo y repítelo para confirmar.
 4. Llama a la herramienta book_table.
