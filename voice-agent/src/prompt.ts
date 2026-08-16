@@ -21,6 +21,7 @@
  */
 
 import { isUsablePhone } from './phone.js';
+import { spokenTime } from './spoken.js';
 import { RESTAURANT, type Lang } from './config.js';
 
 type PromptContext = {
@@ -121,23 +122,27 @@ function closingAfter(lastSeating: string): string {
 }
 
 function openingHours(lang: Lang): string {
-  const open = RESTAURANT.service.firstSeating;
+  const open = spokenTime(RESTAURANT.service.firstSeating, lang);
   const byDay = RESTAURANT.service.lastSeatingByWeekday;
-  const weekday = closingAfter(byDay[1] ?? '23:00');
-  const weekend = closingAfter(byDay[6] ?? '00:00');
+  const weekday = spokenTime(closingAfter(byDay[1] ?? '23:00'), lang);
+  const weekend = spokenTime(closingAfter(byDay[6] ?? '00:00'), lang);
 
+  // Hungarian suffixes attach directly to a word, with no hyphen — that is a
+  // convention for digits, and "este nyolc-kor" is both wrong and audibly
+  // clumsy. Only -kor and -ig are used here because both are invariant; -tól
+  // would need vowel harmony against a word this function does not know.
   if (weekday === weekend) {
     return {
-      hu: `minden nap ${open} és ${weekday} között`,
-      en: `every day from ${open} to ${weekday}`,
-      es: `todos los días de ${open} a ${weekday}`,
+      hu: `minden nap ${open}kor nyitunk, és ${weekday}ig tartunk nyitva`,
+      en: `we open at ${open} every day and close at ${weekday}`,
+      es: `abrimos a ${open} todos los días y cerramos a ${weekday}`,
     }[lang];
   }
 
   return {
-    hu: `hétfőtől péntekig ${open} és ${weekday} között, szombaton és vasárnap ${open} és ${weekend} között`,
-    en: `Monday to Friday from ${open} to ${weekday}, Saturday and Sunday from ${open} to ${weekend}`,
-    es: `de lunes a viernes de ${open} a ${weekday}, sábados y domingos de ${open} a ${weekend}`,
+    hu: `minden nap ${open}kor nyitunk, hétköznap ${weekday}ig, hétvégén ${weekend}ig tartunk nyitva`,
+    en: `we open at ${open} every day, closing at ${weekday} on weekdays and ${weekend} at weekends`,
+    es: `abrimos a ${open} todos los días, y cerramos a ${weekday} entre semana y a ${weekend} los fines de semana`,
   }[lang];
 }
 
@@ -169,7 +174,7 @@ LEMONDÁS MENETE (ha a hívó lemondani szeretne):
 5. Ha already_cancelled: mondd el, hogy ez a foglalás korábban már lemondásra került, tehát most nincs fenntartva asztal. NE mondd azt, hogy most szabadítottad fel.
 
 FOGLALÁS MENETE:
-1. Amint kiderül, hogy asztalt szeretne foglalni, ELŐSZÖR mondd el a nyitvatartást: nyitva vagyunk ${openingHours('hu')}, asztalt ${serviceWindow('hu')} között lehet foglalni. Csak ezután kérdezd meg a dátumot, időpontot és létszámot. Ezt egyszer mondd el, a hívás elején — ne ismételd meg minden válaszban.
+1. Amint kiderül, hogy asztalt szeretne foglalni, ELŐSZÖR mondd el egyetlen rövid mondatban a nyitvatartást: ${openingHours('hu')}. NE sorold fel emellé az utolsó foglalható időpontot is — telefonon több óraadat egyetlen mondatban követhetetlen. Csak ezután kérdezd meg a dátumot, időpontot és létszámot. Ezt egyszer mondd el, a hívás elején.
 2. Hívd meg a check_availability eszközt.
 3. Ha van hely, kérdezd meg a vendég teljes nevét, és olvasd vissza megerősítésre.
 4. Hívd meg a book_table eszközt.
@@ -205,7 +210,7 @@ CANCELLATION SEQUENCE (when the caller wants to cancel):
 5. On already_cancelled: say it was cancelled earlier and no table is being held. Do NOT claim you have just released it.
 
 BOOKING SEQUENCE:
-1. As soon as it is clear they want a table, FIRST state the hours: we are open ${openingHours('en')}, and tables can be booked ${serviceWindow('en')}. Only then ask for the date, time and party size. Say this once, early — do not repeat it in every reply.
+1. As soon as it is clear they want a table, FIRST give the hours in one short sentence: ${openingHours('en')}. Do NOT also recite the last seating time — several clock times in one spoken sentence are impossible to follow on a phone line. Only then ask for the date, time and party size. Say this once, early.
 2. Call the check_availability tool.
 3. If a table is free, ask for the guest's full name and read it back for confirmation.
 4. Call the book_table tool.
@@ -236,7 +241,7 @@ SECUENCIA DE CANCELACIÓN (si quien llama quiere cancelar):
 5. Si devuelve already_cancelled: di que ya se canceló antes y que no hay mesa reservada.
 
 SECUENCIA DE RESERVA:
-1. En cuanto quede claro que quieren mesa, di PRIMERO el horario: abrimos ${openingHours('es')}, y se puede reservar ${serviceWindow('es')}. Solo después pregunta la fecha, la hora y el número de personas. Dilo una vez, al principio, sin repetirlo en cada respuesta.
+1. En cuanto quede claro que quieren mesa, di PRIMERO el horario en una frase corta: ${openingHours('es')}. NO añadas además la última hora reservable: varias horas en una sola frase son imposibles de seguir por teléfono. Solo después pregunta la fecha, la hora y el número de personas. Dilo una vez, al principio.
 2. Llama a la herramienta check_availability.
 3. Si hay mesa, pide el nombre completo y repítelo para confirmar.
 4. Llama a la herramienta book_table.

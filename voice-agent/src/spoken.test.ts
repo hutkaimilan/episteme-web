@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { spokenCode } from './spoken.js';
+import { spokenCode, spokenTime } from './spoken.js';
 
 test('a Hungarian code is spelled with Hungarian letter and digit names', () => {
   assert.equal(spokenCode('EP-8234', 'hu'), 'é, pé, kötőjel, nyolc, kettő, három, négy');
@@ -33,4 +33,34 @@ test('characters the voice cannot spell are dropped rather than passed through',
 
 test('an empty code yields an empty string rather than throwing', () => {
   assert.equal(spokenCode('', 'hu'), '');
+});
+
+test('whole hours are spoken as a person would say them, not as digits', () => {
+  // The opening hours were read out as a run of numbers, which is unfollowable
+  // on a phone line. These are the exact times the restaurant's hours produce.
+  assert.equal(spokenTime('20:00', 'hu'), 'este nyolc');
+  assert.equal(spokenTime('23:00', 'hu'), 'este tizenegy');
+  assert.equal(spokenTime('00:00', 'hu'), 'éjfél');
+  assert.equal(spokenTime('01:00', 'hu'), 'hajnali egy');
+});
+
+test('midnight and midday have names rather than readings', () => {
+  assert.equal(spokenTime('00:00', 'en'), 'midnight');
+  assert.equal(spokenTime('12:00', 'en'), 'midday');
+  assert.equal(spokenTime('00:00', 'es'), 'medianoche');
+});
+
+test('English and Spanish render the same hours idiomatically', () => {
+  assert.equal(spokenTime('20:00', 'en'), '8pm');
+  assert.equal(spokenTime('23:00', 'en'), '11pm');
+  assert.equal(spokenTime('01:00', 'en'), '1am');
+  assert.equal(spokenTime('20:00', 'es'), 'las ocho de la noche');
+});
+
+test('a time off the hour falls back to a plain reading rather than invented idiom', () => {
+  assert.equal(spokenTime('20:30', 'hu'), '20 óra 30');
+});
+
+test('a malformed time is passed through rather than throwing mid-call', () => {
+  assert.equal(spokenTime('nonsense', 'hu'), 'nonsense');
 });

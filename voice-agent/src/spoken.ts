@@ -67,3 +67,48 @@ export function spokenCode(code: string, lang: Lang): string {
 
   return parts.join(', ');
 }
+
+/**
+ * A clock time as the words a person would actually say.
+ *
+ * "20:00" handed to a TTS voice comes out as a run of digits, and a sentence
+ * carrying several of them becomes an unintelligible number wall over a phone
+ * line — which is exactly what happened when the agent recited the opening
+ * hours. Midnight is the worst case: "00:00" has no natural reading at all.
+ *
+ * Whole hours get their idiomatic name; anything else falls back to a plain
+ * hour-and-minutes reading rather than inventing phrasing for a case the
+ * restaurant's hours never produce.
+ */
+const HU_HOURS = [
+  'tizenkettő', 'egy', 'kettő', 'három', 'négy', 'öt',
+  'hat', 'hét', 'nyolc', 'kilenc', 'tíz', 'tizenegy',
+] as const;
+
+const ES_HOURS = [
+  'doce', 'una', 'dos', 'tres', 'cuatro', 'cinco',
+  'seis', 'siete', 'ocho', 'nueve', 'diez', 'once',
+] as const;
+
+export function spokenTime(time: string, lang: Lang): string {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
+
+  const twelve = HU_HOURS[h % 12] as string;
+  const es = ES_HOURS[h % 12] as string;
+  const en12 = h % 12 === 0 ? 12 : h % 12;
+
+  if (m === 0) {
+    if (h === 0) return { hu: 'éjfél', en: 'midnight', es: 'medianoche' }[lang];
+    if (h === 12) return { hu: 'dél', en: 'midday', es: 'mediodía' }[lang];
+    if (h < 5) return { hu: `hajnali ${twelve}`, en: `${en12}am`, es: `la${h === 1 ? '' : 's'} ${es} de la madrugada` }[lang];
+    if (h < 10) return { hu: `reggel ${twelve}`, en: `${en12}am`, es: `la${h === 1 ? '' : 's'} ${es} de la mañana` }[lang];
+    if (h < 12) return { hu: `délelőtt ${twelve}`, en: `${en12}am`, es: `la${h === 1 ? '' : 's'} ${es} de la mañana` }[lang];
+    if (h < 18) return { hu: `délután ${twelve}`, en: `${en12}pm`, es: `la${h === 13 ? '' : 's'} ${es} de la tarde` }[lang];
+    return { hu: `este ${twelve}`, en: `${en12}pm`, es: `la${h === 13 ? '' : 's'} ${es} de la noche` }[lang];
+  }
+
+  // Off the hour: read it plainly rather than guess at idiom.
+  const mm = String(m).padStart(2, '0');
+  return { hu: `${h} óra ${m}`, en: `${en12}:${mm}${h < 12 ? 'am' : 'pm'}`, es: `${h}:${mm}` }[lang];
+}
