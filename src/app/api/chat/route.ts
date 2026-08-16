@@ -31,19 +31,24 @@ export const maxDuration = 60;
 // it down. Its wind-down was already visible as escalating 429s, which the
 // retry path turned into multi-second waits for the guest.
 //
-// Replaces llama-3.3-70b-versatile, which Groq retired on 2026-08-16.
+// Replaces llama-3.3-70b-versatile, retired by Groq on 2026-08-16.
 //
-// Chosen over the other recommended replacement, openai/gpt-oss-120b, because
-// this is a single-shot strict-JSON tool-calling design and gpt-oss models are
-// reasoning models: the August incident was gpt-oss-20b spending its completion
-// budget on reasoning tokens and stalling before it emitted any JSON at all
-// (output_parse_failed). qwen3.6-27b carries no such overhead.
+// Not the model this design would pick. gpt-oss models are reasoning models,
+// and the August incident was gpt-oss-20b spending its completion budget on
+// reasoning tokens and stalling before emitting any of the JSON this
+// single-shot tool-calling flow requires (output_parse_failed). It is here
+// because it is the only replacement the organisation's Allowed Models list
+// actually permits: both of Groq's recommendations, qwen/qwen3.6-27b and
+// openai/gpt-oss-120b, return 403 permissions_error.
 //
-// Both replacements are also gated by the org's Allowed Models list, and a
-// model missing from it returns 403 permissions_error rather than anything
-// resembling a model problem. If this starts 403ing, check
-// console.groq.com/settings/limits before touching the model name.
-const MODEL = 'qwen/qwen3.6-27b';
+// The two conditions behind the August stalls are gone: reasoning_effort is
+// pinned to 'low' below, and MAX_TOKENS is 2000 rather than the 800 the
+// reasoning tokens used to exhaust.
+//
+// Revisit once qwen/qwen3.6-27b is genuinely enabled at
+// console.groq.com/settings/limits — note that ticking it in the dialog is not
+// enough on its own, and a project-level limit can override the org list.
+const MODEL = 'openai/gpt-oss-20b';
 // GROQ_API_URL is a test seam only (integration tests point it at a local
 // mock); in production it is unset and the real endpoint below is used.
 const GROQ_URL = process.env.GROQ_API_URL ?? 'https://api.groq.com/openai/v1/chat/completions';
