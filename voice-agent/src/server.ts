@@ -18,7 +18,8 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 import { assertEnv, getEnv } from './env.js';
 import { LANG_TAGS, RESTAURANT, isLang, type Lang } from './config.js';
-import { FAILURE_MESSAGE, GREETING, systemPrompt } from './prompt.js';
+import { FAILURE_MESSAGE, GREETING, TIME_LIMIT_MESSAGE, systemPrompt } from './prompt.js';
+import { admitCall, maxCallSeconds } from './limit.js';
 import { runTurn, TurnAbortedError, type ChatMessage } from './llm.js';
 import { nowLocalTime, todayLocal } from './slot.js';
 import { sendCancellationSms, sendConfirmationSms, verifyTwilioSignature } from './twilio.js';
@@ -65,6 +66,49 @@ function twiml(): string {
 </Response>`;
 }
 
+/**
+ * Hungarian-language Twilio voice used for the declined-call message.
+ *
+ * Not ElevenLabs: this TwiML never engages ConversationRelay, so the built-in
+ * `<Say>` voices are all that is available — and that is the point of declining
+ * here rather than inside the session, since the whole synthesis stack is what
+ * an over-cap call is meant not to spend.
+ */
+const LIMIT_TTS_VOICE_DEFAULT = 'Google.hu-HU-Standard-A';
+
+/**
+ * Spoken to a caller the daily cap has turned away. Hungarian, formal, and it
+ * says what the caller can do next: an apology that ends in a dial tone reads
+ * as a fault at the restaurant rather than a limit on a demonstration line.
+ *
+ * No e-mail address — the built-in voices read "@" unpredictably — and no
+ * confirmation code, because nothing was booked.
+ */
+const LIMIT_MESSAGE_DEFAULT =
+  `Köszönjük, hogy az ${RESTAURANT.spokenName} recepcióját hívta. ` +
+  'A bemutató vonal mai hívásainak száma sajnos elérte a napi keretet, ezért most nem tudjuk fogadni a hívását. ' +
+  'Kérjük, hívjon vissza holnap, vagy foglaljon asztalt a weboldalunkon. Viszonthallásra.';
+
+/**
+ * TwiML for a call the daily cap declined: one sentence, then hang up.
+ *
+ * `<Hangup>` rather than leaving the call open — an open line after the message
+ * bills for silence, which is exactly what the cap exists to stop.
+ *
+ * Both the voice and the wording are overridable from the environment, so the
+ * message can be changed (or translated for a differently-targeted number)
+ * without a redeploy of this service.
+ */
+function limitReachedTwiml(): string {
+  const voice = process.env.LIMIT_TTS_VOICE?.trim() || LIMIT_TTS_VOICE_DEFAULT;
+  const message = process.env.LIMIT_TTS_MESSAGE?.trim() || LIMIT_MESSAGE_DEFAULT;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="${LANG_TAGS[DEFAULT_LANG]}" voice="${escapeXml(voice)}">${escapeXml(message)}</Say>
+  <Hangup />
+</Response>`;
+}
+
 async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -100,7 +144,21 @@ const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
           return;
         }
 
-        console.log('[HTTP] inbound call from', params.From ?? '<unknown>');
+        // Counted only after the signature check, so an unsigned request
+        // cannot burn the day's budget without ever placing a call.
+        const verdict = await admitCall();
+        if (!verdict.allowed) {
+          console.warn(
+            `[HTTP] daily cap reached (${verdict.count ?? '?'}/${verdict.limit}); declined call from`,
+            params.From ?? '<unknown>',
+          );
+          res.writeHead(200, { 'content-type': 'text/xml' });
+          res.end(limitReachedTwiml());
+          return;
+        }
+
+        const counted = verdict.count === null ? 'uncounted' : `${verdict.count}/${verdict.limit} today`;
+        console.log('[HTTP] inbound call from', params.From ?? '<unknown>', `(${counted})`);
         res.writeHead(200, { 'content-type': 'text/xml' });
         res.end(twiml());
       } catch (error) {
@@ -273,8 +331,36 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
   }
 }
 
+/** How long the caller is given to hear the closing line before the socket goes. */
+const HANGUP_GRACE_MS = 6_000;
+
 wss.on('connection', (ws: WebSocket) => {
   let session: Session | null = null;
+
+  let graceTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * Per-call ceiling.
+   *
+   * Armed on connect rather than on `setup`, because the clock that matters is
+   * the one Twilio bills from, and that starts when the socket opens. The
+   * caller is told the call is ending instead of being cut off mid-word: a
+   * silent disconnect is indistinguishable from a dropped call, and a caller
+   * who thinks the line dropped rings straight back, which is the opposite of
+   * what a cap is for.
+   */
+  let hangupTimer: NodeJS.Timeout | null = setTimeout(() => {
+    hangupTimer = null;
+    const lang = session?.lang ?? DEFAULT_LANG;
+    console.warn('[WS] per-call limit reached on', session?.callSid ?? 'unknown', '— closing');
+    speak(ws, TIME_LIMIT_MESSAGE[lang], true);
+    // Synthesis and playback happen after this frame leaves, so the socket has
+    // to outlive it — closing immediately means the caller hears nothing at all.
+    graceTimer = setTimeout(() => {
+      graceTimer = null;
+      ws.close(1000, 'Call time limit reached');
+    }, HANGUP_GRACE_MS);
+  }, maxCallSeconds() * 1_000);
 
   ws.on('message', (raw) => {
     void (async () => {
@@ -373,6 +459,12 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('close', () => {
+    // Most calls end well inside the cap. Left armed, every one of those would
+    // keep a timer — and this closure's whole session — alive until it fired.
+    if (hangupTimer) clearTimeout(hangupTimer);
+    if (graceTimer) clearTimeout(graceTimer);
+    hangupTimer = null;
+    graceTimer = null;
     if (session) console.log('[WS] session closed', session.callSid);
   });
 

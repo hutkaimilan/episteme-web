@@ -88,6 +88,10 @@ fails immediately rather than on the first live call.
 | `TWILIO_API_KEY` | no | |
 | `TWILIO_API_SECRET` | no | |
 | `TWILIO_SMS_FROM` | no | |
+| `MAX_CALLS_PER_DAY` | no | Calls answered per Budapest day. Defaults to 20; `off` disables both caps. Over the cap the call is declined before ConversationRelay is engaged. |
+| `MAX_CALL_SECONDS` | no | Ceiling on one call. Defaults to 180. The agent says it is ending the call, then the socket closes six seconds later. |
+| `LIMIT_TTS_VOICE` | no | Twilio `<Say>` voice for the declined-call message. Defaults to `Google.hu-HU-Standard-A`. |
+| `LIMIT_TTS_MESSAGE` | no | Overrides the wording of that message. Hungarian by default. |
 | `PORT` | no | Defaults to 8080. |
 
 Restaurant policy — capacity, service window, closing days, party limits —

@@ -283,6 +283,21 @@ export const GREETING: Record<Lang, string> = {
   es: `Bienvenido a ${RESTAURANT.spokenName}. ¿En qué puedo ayudarle?`,
 };
 
+/**
+ * Spoken when a call hits the per-call time cap, immediately before the socket
+ * is closed. Fixed text for the same reason the greeting is: it has to be said
+ * at a moment when waiting on a model round trip is exactly what there is no
+ * time left for.
+ *
+ * It names the limit rather than apologising vaguely, so the caller understands
+ * the call ended by design and that ringing back works.
+ */
+export const TIME_LIMIT_MESSAGE: Record<Lang, string> = {
+  hu: 'Elnézést kérek, ez a hívás elérte a maximális hosszát, ezért most be kell fejeznem. Kérem, hívjon vissza, ha folytatni szeretné. Viszonthallásra.',
+  en: "I'm sorry, this call has reached its maximum length, so I have to end it here. Please call back if you would like to continue. Goodbye.",
+  es: 'Lo siento, esta llamada ha alcanzado su duración máxima, así que debo finalizarla. Vuelva a llamar si desea continuar. Hasta luego.',
+};
+
 /** Spoken when the model or a tool fails irrecoverably mid-call. */
 export const FAILURE_MESSAGE: Record<Lang, string> = {
   hu: `Elnézést kérek, technikai hiba lépett fel. Kérem, próbálja meg néhány perc múlva, vagy írjon nekünk a ${RESTAURANT.contactEmail} címre.`,
