@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fallbackMessage, runTurn, type ChatMessage } from '@/lib/chatEngine';
+import { conversationLang, fallbackMessage, runTurn, type ChatMessage } from '@/lib/chatEngine';
 import { budapestHour, greetingPhrase, timeOfDayFromHour, type TimeOfDay } from '@/lib/greeting';
 import { callGroqApi } from '@/lib/groqClient';
 
@@ -74,7 +74,7 @@ function todayInBudapest(): { date: string; weekday: string; timeOfDay: TimeOfDa
   return { date, weekday, timeOfDay };
 }
 
-function systemPrompt(): string {
+function systemPrompt(lang: 'hu' | 'en' | 'es' = 'hu'): string {
   const { date, weekday, timeOfDay } = todayInBudapest();
   const greetingNow = greetingPhrase('hu');
   return `You are the reception agent of EPISTEME, an ultra-luxury fine-dining restaurant in Budapest, Kossuth Lajos tér 14.
@@ -160,7 +160,8 @@ NEVER QUOTE A NUMBER YOU HAVE NOT LOOKED UP: never state a seat count, "fully bo
 ANSWER SHAPE AFTER A CHECK: if it fits, confirm and collect name, phone AND e-mail address (the EP-XXXX code comes later, from the real book_table result). If not, state EXACTLY how many seats remain that evening AND a concrete date from suggestedAlternatives where the FULL party fits — never a vague "try another day", never a date the tool did not return.
 
 CONVERSATION RULES:
-- Formal address mandatory in every language (magázódás / "usted" / formal English); never informal. Reply in the guest's language (HU/EN/ES, default HU). "message" is the only guest-visible text.
+- LANGUAGE: write "message" in ${{ hu: 'HUNGARIAN', en: 'ENGLISH', es: 'SPANISH' }[lang]} — this has already been determined from the conversation, so do not re-decide it per message and do not switch because one line was short or mostly numbers. Only if the guest explicitly asks for another language do you change.
+- Formal address mandatory in every language (magázódás / "usted" / formal English); never informal. "message" is the only guest-visible text.
 - Collect date, time, party size; before booking also the full name, phone number AND e-mail address. All three are REQUIRED for book_table — the e-mail is where the confirmation (and any later cancellation notice) is sent, so never call book_table without it, and never invent one: ask the guest.
 - Before book_table, summarise the details and the 275,59 € deposit (no-minimum/no-dress-code when relevant); call it only after the guest confirms.
 - Always check_availability before book_table. If remainingCapacity > 0 but too small, a smaller party that evening is also an option. Never offer a different time the same evening as extra capacity.
@@ -194,7 +195,7 @@ async function callGroq(messages: ChatMessage[], systemSuffix: string): Promise<
 
   return callGroqApi(
     { url: LLM_URL, apiKey, model: MODEL, maxTokens: MAX_TOKENS, reasoningEffort: MODEL.includes('gpt-oss') ? 'low' : undefined },
-    systemPrompt() + systemSuffix,
+    systemPrompt(conversationLang(apiMessages)) + systemSuffix,
     apiMessages,
   );
 }

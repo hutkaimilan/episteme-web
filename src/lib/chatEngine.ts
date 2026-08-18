@@ -342,13 +342,65 @@ function availabilityConfirmed(toolCalls: ToolEvent[]): boolean {
   );
 }
 
-/** Very small language heuristic for the graceful fallback message only. */
-export function detectLang(text: string): 'hu' | 'en' | 'es' {
+/**
+ * Language of a single message, or null when it carries no signal either way.
+ *
+ * Null matters: "Saturday, 22:00, for 30 people" is unmistakably English to a
+ * reader but contains none of the function words a word list looks for, and
+ * treating that absence as Hungarian is what made the receptionist answer an
+ * English guest in Hungarian mid-conversation.
+ */
+export function detectLangOrNull(text: string): 'hu' | 'en' | 'es' | null {
   const t = text.toLowerCase();
-  if (/[áéíóöőúüű]/.test(t) || /\b(szeretnék|foglal|asztal|kérem|jó napot|fő)\b/.test(t)) return 'hu';
-  if (/[¿¡ñ]/.test(t) || /\b(quiero|reservar|mesa|por favor|gracias|noche)\b/.test(t)) return 'es';
-  if (/\b(the|would|table|book|please|reservation|evening)\b/.test(t)) return 'en';
-  return 'hu';
+
+  if (/[őű]/.test(t) || /\b(szeretnék|szeretne|foglal\w*|asztal\w*|kérem|köszönöm|jó napot|jó estét|fő|este|holnap|szombat\w*|vasárnap|hétfő\w*|kedd\w*|szerda|csütörtök\w*|péntek\w*)\b/.test(t)) {
+    return 'hu';
+  }
+  if (/[¿¡ñ]/.test(t) || /\b(quiero|quisiera|reservar|reserva|mesa|por favor|gracias|noche|personas|sábado|domingo|lunes|martes|jueves|viernes)\b/.test(t)) {
+    return 'es';
+  }
+  if (/\b(the|would|like|table|book|booking|please|thank|thanks|reservation|evening|tonight|tomorrow|people|guests|for|at|on|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(t)) {
+    return 'en';
+  }
+  // Accented Hungarian vowels shared with other languages are weak on their
+  // own, so they are only consulted once the stronger cues have all missed.
+  if (/[áéíóöúü]/.test(t)) return 'hu';
+  return null;
+}
+
+/** Backwards-compatible wrapper: the fallback message needs some language. */
+export function detectLang(text: string): 'hu' | 'en' | 'es' {
+  return detectLangOrNull(text) ?? 'hu';
+}
+
+/**
+ * The language of the CONVERSATION, not of its latest message.
+ *
+ * Decided once, from the earliest message that carries a signal, and then held.
+ * A guest who opens in English and later types "Saturday, 22:00, for 30 people"
+ * has not switched languages — but judged message by message, that line reads
+ * as no language at all and the default takes over, so the reply arrives in
+ * Hungarian. Anchoring to the first clear signal keeps a conversation in one
+ * language unless the guest genuinely writes several messages in another.
+ */
+export function conversationLang(
+  messages: readonly { role: string; content: string }[],
+): 'hu' | 'en' | 'es' {
+  const userLangs = messages
+    .filter((m) => m.role === 'user' && !m.content.startsWith('[RENDSZER]'))
+    .map((m) => detectLangOrNull(m.content))
+    .filter((l): l is 'hu' | 'en' | 'es' => l !== null);
+
+  if (userLangs.length === 0) return 'hu';
+
+  // A genuine switch: the two most recent signals agree, and disagree with the
+  // opening one. One stray message is not enough — guests quote a dish name or
+  // a day in another language without meaning to change the conversation.
+  const last = userLangs.at(-1)!;
+  const previous = userLangs.at(-2);
+  if (previous === last && last !== userLangs[0]) return last;
+
+  return userLangs[0]!;
 }
 
 // Graceful, HUMAN fallback for when the model backend is unreachable, rate-

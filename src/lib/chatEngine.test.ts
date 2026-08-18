@@ -7,6 +7,8 @@ import {
   claimsAvailability,
   statedPartySizes,
   detectLang,
+  detectLangOrNull,
+  conversationLang,
   fallbackMessage,
   type ChatMessage,
   type ModelCaller,
@@ -987,4 +989,53 @@ test('the committed-booking fallback follows the guest into English and Spanish'
   assert.match(es.message, /Su reserva sí se ha realizado/);
   assert.match(es.message, /12 comensales/);
   __setEmailTransportForTests(null);
+});
+
+test('a message that is mostly numbers does not reset the conversation language', () => {
+  // The exact exchange that failed: the guest opened in English, then typed a
+  // line with no English function words in it, and was answered in Hungarian.
+  const messages = [
+    { role: 'user', content: 'I would like to book a table' },
+    { role: 'assistant', content: 'Thank you for your interest!' },
+    { role: 'user', content: 'Saturday, 22:00, for 30 people' },
+  ];
+  assert.equal(conversationLang(messages), 'en');
+});
+
+test('a message carrying no language signal at all reports none', () => {
+  assert.equal(detectLangOrNull('22:00'), null);
+  assert.equal(detectLangOrNull('30'), null);
+  assert.equal(detectLangOrNull(''), null);
+});
+
+test('each language is recognised from its own opening line', () => {
+  assert.equal(conversationLang([{ role: 'user', content: 'Szeretnék asztalt foglalni' }]), 'hu');
+  assert.equal(conversationLang([{ role: 'user', content: 'I would like to book a table' }]), 'en');
+  assert.equal(conversationLang([{ role: 'user', content: 'Quisiera reservar una mesa' }]), 'es');
+});
+
+test('one stray line in another language does not switch the conversation', () => {
+  // Guests quote a day or a dish in another language without meaning to switch.
+  const messages = [
+    { role: 'user', content: 'Szeretnék asztalt foglalni' },
+    { role: 'user', content: 'for 4 people' },
+  ];
+  assert.equal(conversationLang(messages), 'hu');
+});
+
+test('two consecutive messages in another language do switch it', () => {
+  const messages = [
+    { role: 'user', content: 'Szeretnék asztalt foglalni' },
+    { role: 'user', content: 'actually, could we do this in English please' },
+    { role: 'user', content: 'a table for four tomorrow evening' },
+  ];
+  assert.equal(conversationLang(messages), 'en');
+});
+
+test('the system placeholder message is not mistaken for the guest speaking', () => {
+  const messages = [
+    { role: 'user', content: '[RENDSZER] A vendég megnyitotta a foglalási felületet.' },
+    { role: 'user', content: 'I would like to book a table' },
+  ];
+  assert.equal(conversationLang(messages), 'en');
 });
