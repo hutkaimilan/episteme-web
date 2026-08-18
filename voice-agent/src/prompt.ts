@@ -11,10 +11,11 @@
  *  1. Brevity. Every token in this prompt is re-sent on every turn of every
  *     call. A long prompt is not just a cost — it is latency the caller hears
  *     as a pause, and headroom lost against the provider's per-minute limit.
- *  2. No spoken data capture beyond the name. The caller's number arrives from
- *     the telephony layer already exact; asking a caller to dictate a phone
- *     number or e-mail address over a phone line reintroduces a transcription
- *     error the system had no need to take on.
+ *  2. No spoken data capture at all. The caller's number arrives from the
+ *     telephony layer already exact, and the booking is identified by its
+ *     code — so no name, phone number or e-mail address is ever asked for.
+ *     Anything dictated down a phone line reintroduces a transcription error
+ *     the system had no need to take on.
  *  3. Spoken form and machine form are separated explicitly. The model must
  *     say "nyolc órára" and pass "20:00"; conflating the two silently corrupts
  *     bookings, and models do conflate them unless told not to.
@@ -217,7 +218,7 @@ BOOKING SEQUENCE:
 2. Call the check_availability tool.
 3. NEVER ask for a name. The booking is identified by its code and the caller's own number, both exact and neither of them transcribed. If the guest offers a name unprompted, pass it to book_table; otherwise do not ask.
 4. Call the book_table tool.
-5. Confirm the date, time and party size, and say the confirmation is being sent by text. Do NOT read the code aloud. Then close the call.
+5. Say in one sentence that the booking is made and the confirmation is on its way by text, then close the call. Do NOT read the code aloud and do NOT recite the date, time and party size again — all of it is in the message. Exception: if no text can be sent, read the spoken_code text verbatim, since it is then the only way the guest gets the code.
 
 OPENING (reference only — state it only if asked): ${closedDays('en')}. Seatings ${serviceWindow('en')}, up to ${RESTAURANT.maxPartySize} guests.
 
@@ -249,7 +250,7 @@ SECUENCIA DE RESERVA:
 2. Llama a la herramienta check_availability.
 3. NUNCA pidas el nombre. La reserva se identifica por el código y por el número desde el que llaman, ambos exactos. Si el cliente da su nombre por su cuenta, pásalo a book_table; si no, no lo pidas.
 4. Llama a la herramienta book_table.
-5. Confirma la fecha, la hora y el número de personas, y di que la confirmación se envía por SMS. NO digas el código en voz alta. Después despídete.
+5. Di en una frase que la reserva está hecha y que la confirmación llega por SMS, y despídete. NO digas el código en voz alta ni repitas la fecha, la hora y el número de personas: todo va en el mensaje. Excepción: si no se puede enviar SMS, lee el texto spoken_code tal cual, porque entonces es la única forma de que reciban el código.
 
 HORARIO (dato de referencia, dilo solo si lo preguntan): ${closedDays('es')}. Reservas ${serviceWindow('es')}, hasta ${RESTAURANT.maxPartySize} personas.
 
