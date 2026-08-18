@@ -72,3 +72,29 @@ export const LANG_TAGS: Record<Lang, string> = {
 export function isLang(value: unknown): value is Lang {
   return typeof value === 'string' && (SUPPORTED_LANGS as readonly string[]).includes(value);
 }
+
+/**
+ * Phrases fed to the speech recogniser as hints.
+ *
+ * A Hungarian surname spoken into an English-language recogniser is mangled —
+ * "Hutkai" came back as "Utkai", the initial H simply dropped. Guest names
+ * cannot be known in advance, but Hungarian surnames are a small and heavily
+ * concentrated set: a few dozen cover a large share of the country, so for a
+ * restaurant in Budapest this is most callers rather than a lucky few.
+ *
+ * Capitalised as normally written, which is what the hint mechanism expects.
+ * Deliberately surnames only: given names are more varied, and a list long
+ * enough to cover them would dilute the weight carried by each entry.
+ */
+export const SPEECH_HINTS: readonly string[] = [
+  RESTAURANT.spokenName,
+  // The fifty or so most common Hungarian surnames.
+  'Nagy', 'Kovács', 'Tóth', 'Szabó', 'Horváth', 'Varga', 'Kiss', 'Molnár',
+  'Németh', 'Farkas', 'Balogh', 'Papp', 'Takács', 'Juhász', 'Lakatos',
+  'Mészáros', 'Oláh', 'Simon', 'Rácz', 'Fekete', 'Szilágyi', 'Török',
+  'Fehér', 'Balázs', 'Gál', 'Szűcs', 'Kocsis', 'Pintér', 'Fodor', 'Szalai',
+  'Sipos', 'Magyar', 'Lukács', 'Gulyás', 'Bíró', 'Király', 'László',
+  'Katona', 'Jakab', 'Somogyi', 'Bodnár', 'Fülöp', 'Orbán', 'Vincze',
+  'Boros', 'Antal', 'Halász', 'Deák', 'Hegedűs', 'Bognár', 'Barna',
+  'Vass', 'Illés', 'Pap', 'Budai', 'Hutkai',
+];

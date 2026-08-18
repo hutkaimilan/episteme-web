@@ -17,7 +17,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { assertEnv, getEnv } from './env.js';
-import { LANG_TAGS, RESTAURANT, SUPPORTED_LANGS, isLang, type Lang } from './config.js';
+import { LANG_TAGS, RESTAURANT, SPEECH_HINTS, SUPPORTED_LANGS, isLang, type Lang } from './config.js';
 import { FAILURE_MESSAGE, GREETING, TIME_LIMIT_MESSAGE, systemPrompt } from './prompt.js';
 import { admitCall, maxCallSeconds } from './limit.js';
 import { runTurn, TurnAbortedError, type ChatMessage } from './llm.js';
@@ -58,6 +58,7 @@ function twiml(): string {
       url="${escapeXml(wsUrl)}"
       language="${LANG_TAGS[DEFAULT_LANG]}"
       transcriptionLanguage="multi"
+      hints="${escapeXml(SPEECH_HINTS.join(','))}"
       transcriptionProvider="Deepgram"
       ttsProvider="ElevenLabs"
       welcomeGreeting="${escapeXml(GREETING[DEFAULT_LANG])}"
