@@ -665,14 +665,18 @@ function buildFieldReminder(diag: { toolName: ToolName; missing: string[] }): st
  * conversation's failure point is always visible in the server log, tied
  * together by the confirmation code or date/guests for correlation.
  */
-async function executeTool(action: ToolAction): Promise<Record<string, unknown>> {
+async function executeTool(
+  action: ToolAction,
+  /** Conversation language, so the guest's e-mail matches the chat they had. */
+  lang: 'hu' | 'en' | 'es',
+): Promise<Record<string, unknown>> {
   const input = action.input;
   let result: Record<string, unknown>;
 
   if (action.name === 'check_availability') {
     result = (await checkAvailability(input.date as string, input.time as string, input.guests as number)) as unknown as Record<string, unknown>;
   } else if (action.name === 'cancel_booking') {
-    result = (await cancelBooking(input.confirmationCode as string)) as unknown as Record<string, unknown>;
+    result = (await cancelBooking(input.confirmationCode as string, lang)) as unknown as Record<string, unknown>;
   } else if (action.name === 'modify_booking') {
     result = (await modifyBooking(input.confirmationCode as string, input.guests as number)) as unknown as Record<string, unknown>;
   } else if (action.name === 'link_email') {
@@ -685,6 +689,7 @@ async function executeTool(action: ToolAction): Promise<Record<string, unknown>>
       input.date as string,
       input.time as string,
       input.guests as number,
+      lang,
     )) as unknown as Record<string, unknown>;
   }
 
@@ -706,6 +711,10 @@ async function executeTool(action: ToolAction): Promise<Record<string, unknown>>
  */
 export async function runTurn(history: ChatMessage[], callModel: ModelCaller): Promise<TurnResult> {
   const messages: ChatMessage[] = [...history];
+  // Derived from the same history the system prompt is built from, so the
+  // confirmation e-mail arrives in the language the guest was just spoken to
+  // in — rather than the default, which they never see until after they leave.
+  const lang = conversationLang(history);
   const toolCalls: ToolEvent[] = [];
   let toolIterations = 0;
   let modelCalls = 0;
@@ -947,7 +956,7 @@ export async function runTurn(history: ChatMessage[], callModel: ModelCaller): P
     }
     toolIterations++;
 
-    const result = await executeTool(action);
+    const result = await executeTool(action, lang);
     toolCalls.push({ name: action.name, input: action.input, result });
 
     messages.push({ role: 'assistant', content: JSON.stringify(action) });

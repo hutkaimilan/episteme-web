@@ -654,3 +654,65 @@ test('capacity is identical whichever of the three address shapes arrives', asyn
   assert.equal(last.available, true);
   assert.equal(last.remainingCapacity, 5);
 });
+
+test('a guest who booked in English is written to in English', () => {
+  // The chat already answers in the guest's language; the confirmation used to
+  // arrive in Hungarian regardless, which is the same failure arriving later.
+  const details = {
+    confirmationCode: 'EP-0557',
+    name: 'John Smith',
+    email: 'john@example.com',
+    phone: '+441234567890',
+    date: '2026-08-22',
+    time: '22:00',
+    guests: 4,
+  };
+
+  const en = renderConfirmationEmail(details, 'en');
+  assert.match(en.subject, /Reservation confirmed/);
+  assert.match(en.message, /Dear John Smith/);
+  assert.doesNotMatch(en.message, /Kedves|Foglalási kód|Létszám/);
+
+  const es = renderConfirmationEmail(details, 'es');
+  assert.match(es.subject, /Reserva confirmada/);
+  assert.match(es.message, /Código de reserva/);
+
+  const hu = renderConfirmationEmail(details, 'hu');
+  assert.match(hu.subject, /Foglalás visszaigazolva/);
+  assert.match(hu.message, /Kedves John Smith/);
+});
+
+test('every language carries the details that make the letter useful', () => {
+  const details = {
+    confirmationCode: 'EP-0557',
+    name: 'John Smith',
+    email: 'john@example.com',
+    phone: '+441234567890',
+    date: '2026-08-22',
+    time: '22:00',
+    guests: 4,
+  };
+
+  for (const lang of ['hu', 'en', 'es'] as const) {
+    const mail = renderConfirmationEmail(details, lang);
+    assert.match(mail.message, /EP-0557/, `${lang}: the code must appear`);
+    assert.match(mail.message, /2026-08-22/, `${lang}: the date must appear`);
+    assert.match(mail.message, /22:00/, `${lang}: the time must appear`);
+  }
+});
+
+test('cancellations are written in the guest\'s language too', () => {
+  const details = {
+    confirmationCode: 'EP-0557',
+    name: 'John Smith',
+    email: 'john@example.com',
+    phone: '+441234567890',
+    date: '2026-08-22',
+    time: '22:00',
+    guests: 4,
+    cancelledAt: '2026-08-18T10:00:00.000Z',
+  };
+  assert.match(renderCancellationEmail(details, 'en').subject, /Reservation cancelled/);
+  assert.match(renderCancellationEmail(details, 'es').subject, /Reserva cancelada/);
+  assert.match(renderCancellationEmail(details, 'hu').subject, /Foglalás lemondva/);
+});

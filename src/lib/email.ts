@@ -186,10 +186,29 @@ function formatTimestamp(iso: string): string {
   }).format(parsed);
 }
 
-export function renderConfirmationEmail(details: BookingEmailDetails): RenderedEmail {
-  return {
-    subject: `Foglalás visszaigazolva - ${RESTAURANT.name}`,
-    message: `Kedves ${details.name}!
+/**
+ * Language of a guest-facing e-mail.
+ *
+ * Staff e-mails stay Hungarian regardless: the reader is the restaurant, and
+ * the guest's language says nothing about theirs.
+ */
+export type EmailLang = 'hu' | 'en' | 'es';
+
+export function renderConfirmationEmail(
+  details: BookingEmailDetails,
+  /**
+   * Defaults to Hungarian only so existing callers keep compiling; every real
+   * caller passes the language the booking was actually made in. A guest who
+   * booked in English receiving a Hungarian confirmation is the same failure
+   * as the chat replying in the wrong language — it is simply less visible,
+   * because it arrives after they have closed the page.
+   */
+  lang: EmailLang = 'hu',
+): RenderedEmail {
+  const body = {
+    hu: {
+      subject: `Foglalás visszaigazolva - ${RESTAURANT.name}`,
+      message: `Kedves ${details.name}!
 
 Köszönjük foglalását az ${RESTAURANT.name} étterembe. Az alábbi részleteket rögzítettük:
 
@@ -205,13 +224,58 @@ Kérdés esetén keressen minket: ${RESTAURANT.contactEmail}
 
 Várjuk szeretettel!
 ${RESTAURANT.name}`,
-  };
+    },
+    en: {
+      subject: `Reservation confirmed - ${RESTAURANT.name}`,
+      message: `Dear ${details.name},
+
+Thank you for your reservation at ${RESTAURANT.name}. We have recorded the following details:
+
+Date: ${details.date}
+Time: ${details.time}
+Guests: ${details.guests}
+Confirmation code: ${details.confirmationCode}
+Deposit: ${RESTAURANT.depositEur}
+
+Address: ${RESTAURANT.address}
+
+Should you have any questions, please write to us at ${RESTAURANT.contactEmail}
+
+We look forward to welcoming you.
+${RESTAURANT.name}`,
+    },
+    es: {
+      subject: `Reserva confirmada - ${RESTAURANT.name}`,
+      message: `Estimado/a ${details.name}:
+
+Gracias por su reserva en ${RESTAURANT.name}. Hemos registrado los siguientes datos:
+
+Fecha: ${details.date}
+Hora: ${details.time}
+Comensales: ${details.guests}
+Código de reserva: ${details.confirmationCode}
+Depósito: ${RESTAURANT.depositEur}
+
+Dirección: ${RESTAURANT.address}
+
+Si tiene cualquier duda, escríbanos a ${RESTAURANT.contactEmail}
+
+Le esperamos con mucho gusto.
+${RESTAURANT.name}`,
+    },
+  }[lang];
+
+  return body;
 }
 
-export function renderCancellationEmail(details: CancellationEmailDetails): RenderedEmail {
+export function renderCancellationEmail(
+  details: CancellationEmailDetails,
+  lang: EmailLang = 'hu',
+): RenderedEmail {
   return {
-    subject: `Foglalás lemondva - ${RESTAURANT.name}`,
-    message: `Kedves ${details.name}!
+    hu: {
+      subject: `Foglalás lemondva - ${RESTAURANT.name}`,
+      message: `Kedves ${details.name}!
 
 Az alábbi foglalás lemondásra került:
 
@@ -225,7 +289,42 @@ Lemondás időpontja: ${formatTimestamp(details.cancelledAt)}
 Amennyiben ez tévedés, kérjük vegye fel velünk a kapcsolatot: ${RESTAURANT.contactEmail}
 
 ${RESTAURANT.name}`,
-  };
+    },
+    en: {
+      subject: `Reservation cancelled - ${RESTAURANT.name}`,
+      message: `Dear ${details.name},
+
+The following reservation has been cancelled:
+
+Confirmation code: ${details.confirmationCode}
+Date: ${details.date}
+Time: ${details.time}
+Guests: ${details.guests}
+
+Cancelled at: ${formatTimestamp(details.cancelledAt)}
+
+If this was not intended, please contact us at ${RESTAURANT.contactEmail}
+
+${RESTAURANT.name}`,
+    },
+    es: {
+      subject: `Reserva cancelada - ${RESTAURANT.name}`,
+      message: `Estimado/a ${details.name}:
+
+La siguiente reserva ha sido cancelada:
+
+Código de reserva: ${details.confirmationCode}
+Fecha: ${details.date}
+Hora: ${details.time}
+Comensales: ${details.guests}
+
+Cancelada el: ${formatTimestamp(details.cancelledAt)}
+
+Si no era su intención, póngase en contacto con nosotros: ${RESTAURANT.contactEmail}
+
+${RESTAURANT.name}`,
+    },
+  }[lang];
 }
 
 /**
@@ -340,12 +439,14 @@ async function dispatch(
  */
 export async function notifyBookingConfirmed(
   details: BookingEmailDetails,
+  /** Guest's language. The restaurant's copy stays Hungarian either way. */
+  lang: EmailLang = 'hu',
 ): Promise<{ guest: boolean; restaurant: boolean }> {
   const guestAddress = normalizeEmail(details.email);
 
   const [guest, restaurant] = await Promise.all([
     guestAddress
-      ? dispatch(renderConfirmationEmail(details), guestAddress, details.name, 'booking confirmation')
+      ? dispatch(renderConfirmationEmail(details, lang), guestAddress, details.name, 'booking confirmation')
       : Promise.resolve(false),
     dispatch(
       renderAdminBookingEmail(details),
@@ -370,13 +471,14 @@ export async function notifyBookingConfirmed(
  */
 export async function notifyBookingCancelled(
   details: CancellationEmailDetails,
+  lang: EmailLang = 'hu',
 ): Promise<{ guest: boolean; restaurant: boolean }> {
   const guestAddress = normalizeEmail(details.email);
 
   const [guest, restaurant] = await Promise.all([
     guestAddress
       ? dispatch(
-          renderCancellationEmail(details),
+          renderCancellationEmail(details, lang),
           guestAddress,
           details.name,
           'cancellation notice (guest)',

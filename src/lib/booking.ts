@@ -43,7 +43,7 @@
  */
 
 import { store, type StoredBooking } from './kv';
-import { normalizeEmail, notifyBookingCancelled, notifyBookingConfirmed } from './email';
+import { normalizeEmail, notifyBookingCancelled, notifyBookingConfirmed, type EmailLang } from './email';
 import { RESTAURANT } from './restaurant';
 
 export type AvailabilityResult = {
@@ -313,6 +313,12 @@ export async function bookTable(
   date: string,
   time: string,
   guests: number,
+  /**
+   * Language the booking was made in. Defaults to Hungarian so existing callers
+   * keep working; the chat passes the conversation's language, so a guest who
+   * booked in English is not written to in Hungarian after they close the page.
+   */
+  lang: EmailLang = 'hu',
 ): Promise<BookingResult> {
   if (typeof name !== 'string' || name.trim().length < 2) {
     audit({ op: 'book_table', date, time, guests, decision: 'rejected', reason: 'invalid_name' });
@@ -423,7 +429,7 @@ export async function bookTable(
     date,
     time,
     guests,
-  });
+  }, lang);
 
   return { success: true, confirmationCode: code, emailSent: notified.guest };
 }
@@ -434,7 +440,10 @@ export async function bookTable(
  * already-cancelled or unknown code returns `unknown_code` without touching
  * capacity. Synchronous body → atomic for the same reason as bookTable.
  */
-export async function cancelBooking(confirmationCode: string): Promise<CancelResult> {
+export async function cancelBooking(
+  confirmationCode: string,
+  lang: EmailLang = 'hu',
+): Promise<CancelResult> {
   const code = normalizeCode(confirmationCode);
   const record = await store.loadRecord(code);
   if (!record) {
@@ -471,7 +480,7 @@ export async function cancelBooking(confirmationCode: string): Promise<CancelRes
     time: record.time,
     guests: record.guests,
     cancelledAt: new Date().toISOString(),
-  });
+  }, lang);
 
   return {
     success: true,
