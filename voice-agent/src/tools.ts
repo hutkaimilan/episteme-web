@@ -48,7 +48,7 @@ export const TOOL_SCHEMAS: readonly ToolSchema[] = [
       name: 'book_table',
       description:
         'Commit a reservation and mint its confirmation code. Only call this after check_availability ' +
-        'reported a free table and the guest confirmed their name. Normally the phone number comes from ' +
+        'reported a free table. Never ask for a name: the booking is identified by its code and the caller ID, and a name asked for over the phone is a transcription risk with nothing to gain. Pass name ONLY if the guest volunteered one unprompted. Normally the phone number comes from ' +
         'caller ID and you must not ask for it or pass one. Only when the system has told you the ' +
         "caller's number is withheld do you ask for it and pass it as phone. The result carries " +
         'spoken_code, which is only to be read aloud when no SMS can be sent; otherwise do not say the code at all.',
@@ -66,7 +66,7 @@ export const TOOL_SCHEMAS: readonly ToolSchema[] = [
               'Never send this when the system already has the number.',
           },
         },
-        required: ['name', 'date', 'time', 'guests'],
+        required: ['date', 'time', 'guests'],
         additionalProperties: false,
       },
     },
@@ -170,7 +170,7 @@ export async function dispatchTool(
         const phone = isUsablePhone(ctx.callerNumber) ? ctx.callerNumber : (dictated ?? '');
 
         const result = await bookTable({
-          name: String(args.name ?? ''),
+          name: String(args.name ?? '').trim(),
           phone,
           date: String(args.date ?? ''),
           time: String(args.time ?? ''),

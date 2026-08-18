@@ -17,7 +17,7 @@ export type AvailabilityResult =
 
 export type BookingResult =
   | { success: true; code: string; name: string; date: string; time: string; guests: number; remaining: number }
-  | { success: false; reason: SlotRejection | 'insufficient_capacity' | 'missing_name' | 'missing_phone' };
+  | { success: false; reason: SlotRejection | 'insufficient_capacity' | 'missing_phone' };
 
 export async function checkAvailability(
   date: string,
@@ -42,8 +42,12 @@ export async function bookTable(params: {
   guests: number;
   lang: string;
 }): Promise<BookingResult> {
+  // No name is asked for on the phone. Verifying a surname aloud through a
+  // recogniser was the least reliable step of the call, and the booking is
+  // already identified by its code and by the caller's own number — both exact,
+  // neither transcribed. Where a name does arrive unprompted it is kept, since
+  // it is genuinely more use to the staff on the door than a number is.
   const name = params.name.trim();
-  if (name.length < 2) return { success: false, reason: 'missing_name' };
   if (!params.phone.trim()) return { success: false, reason: 'missing_phone' };
 
   const slot = validateSlot(params.date, params.time, params.guests);
@@ -62,7 +66,7 @@ export async function bookTable(params: {
     const code = await claimCode();
     await saveBooking({
       code,
-      name,
+      name: name || `Telefonos foglalás ${params.phone}`,
       phone: params.phone,
       date: params.date,
       time: params.time,
@@ -70,7 +74,7 @@ export async function bookTable(params: {
       lang: params.lang,
       createdAt: new Date().toISOString(),
     });
-    return { success: true, code, name, date: params.date, time: params.time, guests: params.guests, remaining };
+    return { success: true, code, name: name || `Telefonos foglalás ${params.phone}`, date: params.date, time: params.time, guests: params.guests, remaining };
   } catch (error) {
     // Compensating action: the seats are held but no booking exists, which
     // would silently shrink capacity for the night on every such failure.
