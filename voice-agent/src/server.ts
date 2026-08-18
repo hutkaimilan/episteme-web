@@ -21,6 +21,7 @@ import { LANG_TAGS, RESTAURANT, SUPPORTED_LANGS, isLang, type Lang } from './con
 import { FAILURE_MESSAGE, GREETING, TIME_LIMIT_MESSAGE, systemPrompt } from './prompt.js';
 import { admitCall, maxCallSeconds } from './limit.js';
 import { runTurn, TurnAbortedError, type ChatMessage } from './llm.js';
+import { startCallRecording } from './recording.js';
 import { nowLocalTime, todayLocal } from './slot.js';
 import { sendCancellationSms, sendConfirmationSms, verifyTwilioSignature } from './twilio.js';
 import { smsConfigured } from './env.js';
@@ -136,6 +137,34 @@ const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/recording-status') {
+      // Twilio calls this once the audio is stored. Logged rather than acted
+      // on: the link is what makes a recording findable later, and it is only
+      // available at this point.
+      const body = await readBody(req);
+      const params = Object.fromEntries(new URLSearchParams(body));
+      const fullUrl = `https://${env.publicHostname}${url.pathname}`;
+
+      if (!verifyTwilioSignature(fullUrl, params, req.headers['x-twilio-signature'] as string | undefined)) {
+        console.error('[HTTP] rejected /recording-status with an invalid signature');
+        res.writeHead(403).end('Forbidden');
+        return;
+      }
+
+      console.log(
+        '[RECORDING]',
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          callSid: params.CallSid,
+          status: params.RecordingStatus,
+          durationSec: params.RecordingDuration,
+          url: params.RecordingUrl,
+        }),
+      );
+      res.writeHead(204).end();
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/twiml') {
       try {
         const body = await readBody(req);
@@ -147,6 +176,10 @@ const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
           res.writeHead(403).end('Forbidden');
           return;
         }
+
+        // Detached: the caller is already connected, and a recording that
+        // fails to start must not delay or fail the call itself.
+        if (params.CallSid) void startCallRecording(params.CallSid);
 
         // Counted only after the signature check, so an unsigned request
         // cannot burn the day's budget without ever placing a call.

@@ -64,3 +64,20 @@ test('a time off the hour falls back to a plain reading rather than invented idi
 test('a malformed time is passed through rather than throwing mid-call', () => {
   assert.equal(spokenTime('nonsense', 'hu'), 'nonsense');
 });
+
+test('the greeting carries the recording notice only when recording is on', async () => {
+  // The two are bound together on purpose: recording a call in the EU is
+  // lawful only if the other party is told, so the notice must not be
+  // switchable independently of the recording itself.
+  const { recordingEnabled } = await import('./recording.js');
+  const { GREETING } = await import('./prompt.js');
+
+  const notice = /rögzítjük|recorded|graba/;
+  if (recordingEnabled()) {
+    assert.match(GREETING.hu, notice, 'recording is on, so callers must be told');
+    assert.match(GREETING.en, notice);
+    assert.match(GREETING.es, notice);
+  } else {
+    assert.doesNotMatch(GREETING.hu, notice, 'recording is off, so no notice should be given');
+  }
+});

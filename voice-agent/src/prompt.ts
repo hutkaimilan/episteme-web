@@ -21,6 +21,7 @@
  */
 
 import { isUsablePhone } from './phone.js';
+import { recordingEnabled } from './recording.js';
 import { spokenTime } from './spoken.js';
 import { RESTAURANT, type Lang } from './config.js';
 
@@ -277,10 +278,24 @@ export function systemPrompt(lang: Lang, ctx: PromptContext): string {
  * it cannot drift, cannot leak instructions, and starts speaking immediately
  * instead of waiting on a model round trip.
  */
+const RECORDING_NOTICE: Record<Lang, string> = {
+  hu: 'Tájékoztatjuk, hogy a hívást minőségbiztosítási célból rögzítjük.',
+  en: 'Please note that this call is recorded for quality assurance.',
+  es: 'Le informamos de que esta llamada se graba con fines de calidad.',
+};
+
+/**
+ * The greeting, carrying the recording disclosure whenever recording is on.
+ *
+ * Bound together deliberately: recording a call in the EU is lawful only if the
+ * other party is told, so the notice cannot be something a later edit switches
+ * off independently of the recording itself. It is also the FIRST thing said —
+ * a disclosure that arrives after the caller has already spoken is not notice.
+ */
 export const GREETING: Record<Lang, string> = {
-  hu: `Üdvözlöm, az ${RESTAURANT.spokenName} étterem recepcióján. Miben segíthetek?`,
-  en: `Welcome to ${RESTAURANT.spokenName}. How may I help you?`,
-  es: `Bienvenido a ${RESTAURANT.spokenName}. ¿En qué puedo ayudarle?`,
+  hu: `${recordingEnabled() ? `${RECORDING_NOTICE.hu} ` : ''}Üdvözlöm, az ${RESTAURANT.spokenName} étterem recepcióján. Miben segíthetek?`,
+  en: `${recordingEnabled() ? `${RECORDING_NOTICE.en} ` : ''}Welcome to ${RESTAURANT.spokenName}. How may I help you?`,
+  es: `${recordingEnabled() ? `${RECORDING_NOTICE.es} ` : ''}Bienvenido a ${RESTAURANT.spokenName}. ¿En qué puedo ayudarle?`,
 };
 
 /**
