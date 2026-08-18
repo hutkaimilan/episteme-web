@@ -246,6 +246,13 @@ export async function runTurn(
         if (abortSignal?.aborted) throw new TurnAbortedError();
         onToken(token);
       });
+    } catch (error) {
+      // An aborted request is not a failure. fetch reports it as a DOMException
+      // regardless of who aborted, so the caller's interrupt was reaching the
+      // generic error path and being answered with an apology — the agent
+      // interrupting them back.
+      if (abortSignal?.aborted) throw new TurnAbortedError();
+      throw error;
     } finally {
       clearTimeout(timer);
       abortSignal?.removeEventListener('abort', onAbort);

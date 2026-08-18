@@ -291,3 +291,21 @@ test('a turn aborted before it starts never reaches the provider', async () => {
   );
   assert.equal(called, false, 'no request is issued for a turn already abandoned');
 });
+
+test('an interrupt during the request itself is an abort, not a failure', async () => {
+  // fetch reports an aborted request as a DOMException whoever aborted it, so
+  // the caller's interrupt was landing in the generic failure path — and being
+  // answered with an apology, which is the agent interrupting them back.
+  const abort = new AbortController();
+  globalThis.fetch = ((_url: string, init?: RequestInit) => {
+    abort.abort();
+    return Promise.reject(
+      Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }),
+    );
+  }) as unknown as typeof fetch;
+
+  await assert.rejects(
+    () => runTurn([{ role: 'user', content: 'ma este' }], baseContext(), () => {}, abort.signal),
+    (error: Error) => error.name === 'TurnAbortedError',
+  );
+});
