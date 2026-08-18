@@ -1,4 +1,5 @@
 import { RESTAURANT } from './restaurant';
+import { sendCancellationSms } from './sms';
 
 /**
  * Transactional e-mail for the EPISTEME reservation system: the guest's
@@ -476,6 +477,10 @@ export async function notifyBookingCancelled(
   const guestAddress = normalizeEmail(details.email);
 
   const [guest, restaurant] = await Promise.all([
+    // The channel follows the guest, not the surface they cancelled from. A
+    // booking taken by phone has a number and no address on purpose, and
+    // reaching only for the address left those guests told a notice was on its
+    // way when nothing had been sent.
     guestAddress
       ? dispatch(
           renderCancellationEmail(details, lang),
@@ -483,7 +488,7 @@ export async function notifyBookingCancelled(
           details.name,
           'cancellation notice (guest)',
         )
-      : Promise.resolve(false),
+      : sendCancellationSms(details.phone, lang, details.confirmationCode, details.date, details.time),
     dispatch(
       renderAdminCancellationEmail(details),
       RESTAURANT.adminEmail,
@@ -492,8 +497,11 @@ export async function notifyBookingCancelled(
     ),
   ]);
 
-  if (!guestAddress) {
-    console.error('[EMAIL_ERROR] cancellation notice to guest skipped: no usable address on', details.confirmationCode);
+  if (!guestAddress && !guest) {
+    console.error(
+      '[NOTIFY_ERROR] cancellation notice reached the guest by neither e-mail nor SMS on',
+      details.confirmationCode,
+    );
   }
   return { guest, restaurant };
 }

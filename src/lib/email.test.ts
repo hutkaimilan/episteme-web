@@ -12,6 +12,7 @@ import {
   type EmailTransport,
 } from './email.ts';
 import { bookTable, cancelBooking, checkAvailability, modifyBooking, resetBookings } from './booking.ts';
+import { toE164, toGsm7 } from './sms.ts';
 import { RESTAURANT } from './restaurant.ts';
 import { runTurn, type ChatMessage, type ModelCaller } from './chatEngine.ts';
 
@@ -715,4 +716,27 @@ test('cancellations are written in the guest\'s language too', () => {
   assert.match(renderCancellationEmail(details, 'en').subject, /Reservation cancelled/);
   assert.match(renderCancellationEmail(details, 'es').subject, /Reserva cancelada/);
   assert.match(renderCancellationEmail(details, 'hu').subject, /Foglalás lemondva/);
+});
+
+test('a phone number typed as a guest would dial it becomes E.164', () => {
+  // Two conventions reach the store: caller ID gives exact E.164, while the web
+  // form receives whatever the guest would actually dial.
+  assert.equal(toE164('0630 130 0242'), '+36301300242');
+  assert.equal(toE164('+36301300242'), '+36301300242');
+  assert.equal(toE164('0036301300242'), '+36301300242');
+});
+
+test('an unusable number is refused rather than sent to the SMS API', () => {
+  assert.equal(toE164(''), null);
+  assert.equal(toE164('Anonymous'), null);
+  assert.equal(toE164('123'), null);
+});
+
+test('Hungarian accents GSM-7 lacks are folded before sending', () => {
+  // Left alone these are rewritten somewhere in the delivery chain, which is
+  // what turns "Foglalási kód" into "Foglalàsi kòd" on the handset.
+  assert.equal(toGsm7('Foglalási kód'), 'Foglalasi kod');
+  assert.equal(toGsm7('30 fő'), '30 fo');
+  // é, ö and ü ARE in GSM-7 and must survive untouched.
+  assert.equal(toGsm7('érték öböl üres'), 'érték öböl üres');
 });
