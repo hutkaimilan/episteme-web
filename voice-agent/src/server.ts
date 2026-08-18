@@ -217,6 +217,17 @@ type Session = {
   messages: ChatMessage[];
   /** Guards against overlapping turns if the caller talks over a reply. */
   busy: boolean;
+  /**
+   * Language the detector reported on the previous prompt, so a switch can be
+   * required to repeat itself before it is acted on.
+   */
+  pendingLang: Lang | null;
+  /**
+   * Whether the caller has actually established a language yet. Until they
+   * have, the session is merely sitting on its default and the first clear
+   * signal should be followed at once.
+   */
+  langEstablished: boolean;
   /** Aborts the turn in flight when the caller talks over it. */
   turnAbort: AbortController | null;
   /**
@@ -447,6 +458,8 @@ wss.on('connection', (ws: WebSocket) => {
             lang: DEFAULT_LANG,
             messages: [],
             busy: false,
+            pendingLang: null,
+            langEstablished: false,
             turnAbort: null,
             queue: [],
           };
@@ -474,22 +487,52 @@ wss.on('connection', (ws: WebSocket) => {
 
           const active = session;
 
-          // With transcriptionLanguage="multi", Deepgram reports the language it
-          // heard on each prompt. Acting on it directly moves the voice on the
-          // caller's FIRST sentence — waiting for the model to call set_language
-          // costs a full turn, which is the turn where the greeting and the
-          // hours are spoken, in the wrong language and heard by the wrong
-          // recogniser.
+          // With transcriptionLanguage="multi", Deepgram reports the language
+          // it heard on each prompt, which moves the voice on the caller's
+          // first sentence rather than a turn later. But a detector given one
+          // short word guesses: a Hungarian "Halló?" came back as Spanish and
+          // took the whole call with it. So a switch has to repeat itself.
+          //
+          // Short utterances are ignored outright — "yes", "aló", "okay" carry
+          // no reliable signal, and they are exactly what gets said in the
+          // middle of a conversation whose language was already settled.
           const heard = String(message.lang ?? '').split('-')[0];
-          if (isLang(heard) && heard !== active.lang) {
-            active.lang = heard;
-            applySystemPrompt(active);
-            send(ws, {
-              type: 'language',
-              ttsLanguage: LANG_TAGS[heard],
-              transcriptionLanguage: 'multi',
-            });
-            console.log('[WS] language detected as', heard, 'on', active.callSid);
+          const enoughSignal = utterance.length >= 12 || utterance.split(/\s+/).length >= 3;
+
+          if (isLang(heard) && enoughSignal && !active.langEstablished) {
+            // Nothing has been established yet — the session is on its default,
+            // not on evidence. Follow the caller from their first sentence, so
+            // the greeting and the hours are not spoken into the wrong language.
+            active.langEstablished = true;
+            active.pendingLang = null;
+            if (heard !== active.lang) {
+              active.lang = heard;
+              applySystemPrompt(active);
+              send(ws, {
+                type: 'language',
+                ttsLanguage: LANG_TAGS[heard],
+                transcriptionLanguage: 'multi',
+              });
+              console.log('[WS] language detected as', heard, 'on', active.callSid);
+            }
+          } else if (isLang(heard) && heard !== active.lang && enoughSignal) {
+            if (active.pendingLang === heard) {
+              active.lang = heard;
+              active.pendingLang = null;
+              applySystemPrompt(active);
+              send(ws, {
+                type: 'language',
+                ttsLanguage: LANG_TAGS[heard],
+                transcriptionLanguage: 'multi',
+              });
+              console.log('[WS] language switched to', heard, 'on', active.callSid);
+            } else {
+              // First sighting: remembered, not acted on.
+              active.pendingLang = heard;
+              console.log('[WS] language', heard, 'heard once on', active.callSid, '— awaiting confirmation');
+            }
+          } else if (isLang(heard) && heard === active.lang) {
+            active.pendingLang = null;
           }
           active.queue.push(utterance);
 
