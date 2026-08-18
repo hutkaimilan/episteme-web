@@ -57,6 +57,7 @@ function twiml(): string {
     <ConversationRelay
       url="${escapeXml(wsUrl)}"
       language="${LANG_TAGS[DEFAULT_LANG]}"
+      transcriptionLanguage="multi"
       transcriptionProvider="Deepgram"
       ttsProvider="ElevenLabs"
       welcomeGreeting="${escapeXml(GREETING[DEFAULT_LANG])}"
@@ -176,10 +177,6 @@ const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
           res.writeHead(403).end('Forbidden');
           return;
         }
-
-        // Detached: the caller is already connected, and a recording that
-        // fails to start must not delay or fail the call itself.
-        if (params.CallSid) void startCallRecording(params.CallSid);
 
         // Counted only after the signature check, so an unsigned request
         // cannot burn the day's budget without ever placing a call.
@@ -458,6 +455,13 @@ wss.on('connection', (ws: WebSocket) => {
           // model has no record of it; without this it opens by greeting again.
           session.messages.push({ role: 'assistant', content: GREETING[DEFAULT_LANG] });
           console.log('[WS] session up', session.callSid, 'from', session.callerNumber);
+
+          // Recording starts here, not in the webhook. Asked for as the webhook
+          // fires, Twilio refuses it with 21220 "not eligible for recording":
+          // the call is still being set up at that point. By the time this
+          // socket is open it is genuinely in progress. Detached, because a
+          // recording that fails to start must not take the call with it.
+          void startCallRecording(session.callSid);
           return;
         }
 
@@ -469,6 +473,24 @@ wss.on('connection', (ws: WebSocket) => {
           if (!utterance) return;
 
           const active = session;
+
+          // With transcriptionLanguage="multi", Deepgram reports the language it
+          // heard on each prompt. Acting on it directly moves the voice on the
+          // caller's FIRST sentence — waiting for the model to call set_language
+          // costs a full turn, which is the turn where the greeting and the
+          // hours are spoken, in the wrong language and heard by the wrong
+          // recogniser.
+          const heard = String(message.lang ?? '').split('-')[0];
+          if (isLang(heard) && heard !== active.lang) {
+            active.lang = heard;
+            applySystemPrompt(active);
+            send(ws, {
+              type: 'language',
+              ttsLanguage: LANG_TAGS[heard],
+              transcriptionLanguage: 'multi',
+            });
+            console.log('[WS] language detected as', heard, 'on', active.callSid);
+          }
           active.queue.push(utterance);
 
           // A turn is already in flight. The words are held rather than
