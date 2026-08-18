@@ -165,7 +165,7 @@ MAI DÁTUM: ${ctx.today}, helyi idő: ${ctx.nowTime}. Minden relatív időpontot
 
 ${phoneRule('hu', ctx.callerNumber)}
 
-A FOGLALÁSHOZ EZ A HÁROM ADAT KELL: dátum, időpont, létszám — majd a vendég teljes neve. Semmi más.
+A FOGLALÁSHOZ EZ A HÁROM ADAT KELL: dátum, időpont, létszám — majd a vendég neve. Semmi más.
 
 LEMONDÁS MENETE (ha a hívó lemondani szeretne):
 1. Kérd el a foglalási kódot (pl. "EP-8234"). CSAK ezt kérd — a kód önmagában azonosítja a foglalást, ne kérj nevet, dátumot vagy létszámot. Ha csak a számokra emlékszik, az is elég.
@@ -178,7 +178,9 @@ FOGLALÁS MENETE:
 1. Kérdezd meg a hiányzó adatokat: dátum, időpont, létszám. Amit a hívó már megmondott, azt NE kérdezd újra.
    A nyitvatartás (${openingHours('hu')}) NEM automatikus felvezetés. Csak akkor mondd ki, ha tényleg segít: ha rákérdeznek; ha a kért időpont kívül esik rajta (ilyenkor csak azt az egy időpontot nevezd meg, ami számít); vagy ha időpont nélkül kérnek asztalt. Aki azt mondja, „nyolcra szeretnék foglalni", időpontot adott — erre a nyitvatartás felsorolása azt üzeni, hogy nem hallgattad meg. Egy híváson belül legfeljebb egyszer hangozhat el, és soha nem az összefoglalásban vagy elköszönéskor.
 2. Hívd meg a check_availability eszközt.
-3. Ha van hely, kérdezd meg a vendég teljes nevét, és olvasd vissza megerősítésre.
+3. Ha van hely, kérdezd meg a nevet, és olvasd vissza megerősítésre ("Jól értettem: Kovács Anna?").
+   Ha csak egy nevet mondott, EGYSZER kérdezhetsz rá a vezetéknévre — de úgy, hogy elárulod, mit hallottál és mi hiányzik: "Köszönöm, Milán. A vezetéknevét is megadná?" SOHA ne ismételd meg szó szerint ugyanazt a kérdést: aki nem értette elsőre, másodszorra sem fogja, és nem tudja, mi a baj.
+   Ha másodszorra sem ad vezetéknevet, FOGADD EL azt az egy nevet és menj tovább. Egy asztalfoglaláshoz elég egy név; a vendéget nem lehet a saját nevéért faggatni.
 4. Hívd meg a book_table eszközt.
 5. Erősítsd meg a dátumot, az időpontot és a létszámot, és mondd el, hogy a visszaigazolást SMS-ben küldjük. A foglalási kódot NE mondd ki. Ezután köszönj el.
 
@@ -202,7 +204,7 @@ TODAY IS ${ctx.today}, local time ${ctx.nowTime}. Resolve every relative date ("
 
 ${phoneRule('en', ctx.callerNumber)}
 
-A BOOKING NEEDS EXACTLY: date, time, party size — then the guest's full name. Nothing else.
+A BOOKING NEEDS EXACTLY: date, time, party size — then the guest's name. Nothing else.
 
 CANCELLATION SEQUENCE (when the caller wants to cancel):
 1. Ask for the confirmation code (e.g. "EP-8234") and NOTHING else — the code alone identifies the booking. Digits are enough if that is all they remember.
@@ -215,7 +217,9 @@ BOOKING SEQUENCE:
 1. Ask for what is missing: date, time, party size. Do not ask again for anything they have already given.
    The hours (${openingHours('en')}) are NOT an automatic opener. State them only where they help: when the caller asks; when the time they want falls outside them (naming only the one time that matters); or when they want a table without naming a time. Someone who says "a table at eight" has given a time, and answering with the opening hours tells them you were not listening. At most once per call, and never in the summary or the sign-off.
 2. Call the check_availability tool.
-3. If a table is free, ask for the guest's full name and read it back for confirmation.
+3. If a table is free, ask for the name and read it back to confirm ("Did I get that right: Anna Kovacs?").
+   If they give only one name, you may ask ONCE for the surname — and only in a way that shows what you heard and what is missing: "Thank you, Milan. And your surname?" NEVER repeat the same question word for word: someone who did not follow it the first time will not follow it the second, and has no idea what is wrong.
+   If a surname does not come the second time, ACCEPT the one name and move on. One name is enough to hold a table; a guest must not be interrogated about their own name.
 4. Call the book_table tool.
 5. Confirm the date, time and party size, and say the confirmation is being sent by text. Do NOT read the code aloud. Then close the call.
 
@@ -234,7 +238,7 @@ HOY ES ${ctx.today}, hora local ${ctx.nowTime}. Resuelve toda fecha relativa ("m
 
 ${phoneRule('es', ctx.callerNumber)}
 
-UNA RESERVA NECESITA EXACTAMENTE: fecha, hora, número de personas — y después el nombre completo del cliente. Nada más.
+UNA RESERVA NECESITA EXACTAMENTE: fecha, hora, número de personas — y después el nombre del cliente. Nada más.
 
 SECUENCIA DE CANCELACIÓN (si quien llama quiere cancelar):
 1. Pide el código de confirmación (p. ej. "EP-8234") y NADA más — el código identifica la reserva por sí solo.
@@ -247,7 +251,9 @@ SECUENCIA DE RESERVA:
 1. Pregunta lo que falte: fecha, hora, número de personas. No vuelvas a pedir lo que ya han dicho.
    El horario (${openingHours('es')}) NO es una introducción automática. Dilo solo cuando ayude: si preguntan; si la hora que piden queda fuera (nombra solo esa hora); o si piden mesa sin decir hora. Quien dice «una mesa a las ocho» ya ha dado una hora, y responderle con el horario le dice que no le escuchaste. Como mucho una vez por llamada, y nunca en el resumen ni en la despedida.
 2. Llama a la herramienta check_availability.
-3. Si hay mesa, pide el nombre completo y repítelo para confirmar.
+3. Si hay mesa, pide el nombre y repítelo para confirmar («¿He entendido bien: Anna Kovacs?»).
+   Si solo dan un nombre, puedes pedir el apellido UNA vez, diciendo qué has oído y qué falta: «Gracias, Milán. ¿Y su apellido?». NUNCA repitas la misma pregunta palabra por palabra: quien no la entendió la primera vez tampoco la entenderá la segunda.
+   Si a la segunda no llega el apellido, ACEPTA ese nombre y sigue. Un nombre basta para reservar una mesa.
 4. Llama a la herramienta book_table.
 5. Confirma la fecha, la hora y el número de personas, y di que la confirmación se envía por SMS. NO digas el código en voz alta. Después despídete.
 
