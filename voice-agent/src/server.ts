@@ -247,6 +247,25 @@ function repairDanglingToolCalls(messages: ChatMessage[]): void {
 }
 
 /**
+ * One line of the call transcript.
+ *
+ * Structured rather than prose so a call can be reconstructed by filtering the
+ * log on its SID, and truncated because a runaway utterance should not be able
+ * to flood the log.
+ */
+function transcript(callSid: string, speaker: 'caller' | 'agent', text: string): void {
+  console.log(
+    '[TRANSCRIPT]',
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      callSid,
+      speaker,
+      text: text.trim().slice(0, 500),
+    }),
+  );
+}
+
+/**
  * Run one turn: record what the caller said, stream the reply, and send the
  * confirmation SMS if a booking was committed.
  *
@@ -255,6 +274,14 @@ function repairDanglingToolCalls(messages: ChatMessage[]): void {
  */
 async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Promise<void> {
   active.messages.push({ role: 'user', content: utterance });
+
+  // Both sides of the call are logged as a transcript. Until now the log
+  // recorded that a call happened and what the booking engine did, but not a
+  // word either party said — so a caller reporting that the agent talked over
+  // them, or that it heard their name wrong, left nothing to check it against.
+  // A transcript answers those without recording audio, which in the EU needs
+  // the caller told and a lawful basis for it.
+  transcript(active.callSid, 'caller', utterance);
 
   const abort = new AbortController();
   active.turnAbort = abort;
@@ -266,6 +293,7 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
     | { name: string; phone: string; code: string; date: string; time: string; guests: number }
     | null = null;
   let spokeAnything = false;
+  let reply = '';
 
   try {
     await runTurn(
@@ -292,11 +320,13 @@ async function runOneTurn(ws: WebSocket, active: Session, utterance: string): Pr
       },
       (token) => {
         spokeAnything = true;
+        reply += token;
         speak(ws, token, false);
       },
       abort.signal,
     );
     speak(ws, '', true);
+    if (reply.trim()) transcript(active.callSid, 'agent', reply);
   } catch (error) {
     if (error instanceof TurnAbortedError) {
       // Not a failure. The caller is already talking; an apology here would be
@@ -440,7 +470,10 @@ wss.on('connection', (ws: WebSocket) => {
           // Record only what the caller actually heard. Keeping the full
           // generated reply would leave the agent believing it had said things
           // that were never played, and repeating itself accordingly.
-          if (spoken) session.messages.push({ role: 'assistant', content: spoken });
+          if (spoken) {
+            session.messages.push({ role: 'assistant', content: spoken });
+            transcript(session.callSid, 'agent', `${spoken} [interrupted]`);
+          }
           return;
         }
 
