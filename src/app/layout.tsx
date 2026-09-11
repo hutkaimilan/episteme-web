@@ -19,7 +19,10 @@ const inter = Inter({
   display: 'swap',
 });
 
-const SITE_URL = 'https://episteme.example.com';
+// The host this actually runs on. While it said example.com, metadataBase
+// made every absolute URL — the OG image included — point at a domain that
+// does not exist, so a shared link previewed with no image.
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://epistemebudapest.up.railway.app';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -57,7 +60,11 @@ export const metadata: Metadata = {
       'Európa legexkluzívabb asztala Budapesten. A világ 0,01%-áért. Foglalás a Kossuth Lajos téren.',
     images: ['/images/brand/og-cover.jpg'],
   },
-  robots: { index: true, follow: true },
+  // EPISTEME is an invented restaurant. Indexed, search would offer it as a
+  // real Budapest address and people would try to book a table that does not
+  // exist. Restaurant JSON-LD is left off for the same reason: structured data
+  // would feed a knowledge panel for a business nobody can visit.
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
